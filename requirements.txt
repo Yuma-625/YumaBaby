@@ -1,0 +1,19 @@
+# Web 服务
+fastapi==0.139.0
+uvicorn==0.49.0
+pydantic==2.13.4
+python-dotenv==1.2.2
+httpx==0.28.1
+websockets==16.0
+
+# LLM
+openai==2.49.0
+
+# 定时任务
+APScheduler==3.11.3
+
+# 行情数据（股票/基金功能当前搁置，暂未接入使用）
+akshare==1.18.64
+pandas==3.0.3
+numpy==2.5.0
+redis==8.0.1
