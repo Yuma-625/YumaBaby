@@ -1,0 +1,27 @@
+#!/bin/sh
+# 提交前护栏：阻止把环境变量文件和明文密钥带进仓库。
+# 启用方式（每个克隆执行一次）：git config core.hooksPath scripts/hooks
+
+status=0
+
+# 1) 禁止提交 .env 及同类环境变量文件（即使被 git add -f 强行加入）
+for path in $(git diff --cached --name-only --diff-filter=ACMR); do
+    case "$path" in
+        .env|*/.env|*.env)
+            echo "✗ 拒绝提交：$path 是环境变量文件，不应入库" >&2
+            status=1
+            ;;
+    esac
+done
+
+# 2) 扫描暂存内容中的常见密钥/私钥格式
+if git diff --cached -U0 -- . | grep -nE '^\+[^+].*(sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|BEGIN [A-Z ]*PRIVATE KEY)'; then
+    echo "✗ 拒绝提交：暂存内容中检测到疑似密钥或私钥" >&2
+    status=1
+fi
+
+if [ "$status" -ne 0 ]; then
+    echo "  如属误报，请先修正内容再提交；不要用 --no-verify 绕过。" >&2
+fi
+
+exit "$status"

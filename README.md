@@ -115,6 +115,21 @@ ChatSkill → persona.get_system_prompt() → LLM
 
 覆盖：CQ 码清洗、自消息/重复消息过滤、鉴权头参数、技能分发、配置解析、人设增删与审核、API 冒烟、lifespan 起停。
 
+## 提交护栏
+
+`.env` 已被 `.gitignore` 排除，仓库里只保留 `.env.example`。为防误操作（例如 `git add -f .env`），`scripts/hooks/pre-commit` 会拦截：
+
+- 任何 `.env` / `*.env` 环境变量文件
+- 暂存内容中的 `sk-` 密钥、`AKIA` 访问密钥、`ghp_` token、PEM 私钥块
+
+每个克隆启用一次：
+
+```powershell
+git config core.hooksPath scripts/hooks
+```
+
+钩子不随仓库自动生效，换机器后需要重新执行上面这条命令。
+
 ## 已知限制
 
 - 股票 / 基金技能只返回「建设中」，未接 akshare；`CACHE_TTL`、`STOCK_DATA_SOURCE` 尚未被使用。
