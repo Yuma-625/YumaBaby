@@ -98,7 +98,7 @@ async def main() -> int:
 
     result = await agent.run(
         args.message,
-        system_prompt="你是鱼宝宝，回答简洁。需要数据时调用工具，不要编造。",
+        system_prompt="你是小鱼，回答简洁。需要数据时调用工具，不要编造。",
     )
 
     print(f"\n模式: {'live' if args.live else '离线剧本'}")

@@ -20,7 +20,7 @@ def _log_task_error(task: asyncio.Task):
 
 def build_help_text() -> str:
     lines = [
-        "鱼宝宝功能列表:",
+        "小鱼功能列表:",
         "  [聊天] 直接说话即可，我陪你聊",
         "  [记忆] 让我记住偏好，之后可以问我",
         "  [网页] 发链接让我读一下（例如「看看 https://…」）",
@@ -52,8 +52,8 @@ class ChatSkill(BaseSkill):
             return reply
 
         if "你好" in message or "你是谁" in message:
-            return "你好！我是鱼宝宝，可以陪你聊天，也能帮你查行情（行情功能建设中）~"
-        return "鱼宝宝已收到你的消息 :)"
+            return "你好！我是小鱼，可以陪你聊天，也能帮你查行情（行情功能建设中）~"
+        return "小鱼已收到你的消息 :)"
 
     def _help_text(self) -> str:
         return build_help_text()

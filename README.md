@@ -1,4 +1,4 @@
-# YumaBaby 鱼宝宝
+# Yuma小鱼
 
 一个跑在 QQ 群里的轻量智能体：**LLM 闲聊 + 人设自进化**，通过 NapCatQQ（OneBot v11 正向 WebSocket）接入 QQ，对外提供 FastAPI HTTP 接口。
 
