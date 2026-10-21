@@ -51,6 +51,10 @@ class Settings:
     # 时区：定时任务按此时间执行
     TIMEZONE: str = os.getenv("TIMEZONE", "Asia/Shanghai")
 
+    # HTTP API 鉴权：公网部署必须设置 API_TOKEN 并打开 API_AUTH_REQUIRED
+    API_TOKEN: str = os.getenv("API_TOKEN", "").strip()
+    API_AUTH_REQUIRED: bool = _env_bool("API_AUTH_REQUIRED", False)
+
     # QQ Bot
     QQ_ENABLED: bool = _env_bool("QQ_ENABLED", False)
     QQ_WS_URL: str = os.getenv("QQ_WS_URL", "ws://127.0.0.1:6700")
@@ -91,6 +95,10 @@ class Settings:
             return False
         lowered = key.lower()
         return not any(marker in lowered for marker in ("your-", "xxx", "changeme", "placeholder"))
+
+    @property
+    def host_is_loopback(self) -> bool:
+        return self.HOST in ("127.0.0.1", "localhost", "::1")
 
 
 settings = Settings()

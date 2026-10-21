@@ -72,6 +72,8 @@ ChatSkill → persona.get_system_prompt() → LLM
 | `DEBUG` | false | 开启 uvicorn reload |
 | `HOST` / `PORT` | 0.0.0.0 / 8000 | 监听地址 |
 | `TIMEZONE` | Asia/Shanghai | 定时任务时区 |
+| `API_TOKEN` | 空 | HTTP API 令牌；设置后 `/chat`、`/broadcast` 必须带 `Authorization: Bearer <token>` |
+| `API_AUTH_REQUIRED` | false | 为 true 且未设 Token 时直接 503，避免裸接口上线 |
 | `QQ_ENABLED` | false | 是否启动 QQ 适配器 |
 | `QQ_WS_URL` | ws://127.0.0.1:6700 | NapCat 正向 WS 地址 |
 | `QQ_ACCESS_TOKEN` | 空 | NapCat 的 access token，填入后走 `Authorization: Bearer` |
@@ -99,6 +101,8 @@ ChatSkill → persona.get_system_prompt() → LLM
 | POST | `/api/v1/chat` | `{"message": "..."}` → `{"reply": "...", "skill_used": "chat"}` |
 | POST | `/api/v1/broadcast` | `{"message": "...", "groups": ["..."]}` 群发，需 QQ 已连接 |
 
+设置了 `API_TOKEN` 后，`/chat` 与 `/broadcast` 必须携带 `Authorization: Bearer <token>`；`/health` 与 `/skills` 保持公开只读。
+
 ## 人设机制
 
 - `base`：固定设定，来自 `DEFAULT_BASE` 或 `data/persona.json`
@@ -106,6 +110,76 @@ ChatSkill → persona.get_system_prompt() → LLM
 - `pending`：LLM 从对话中提炼出的候选规则
 
 每天 20:00 若有 pending，会私聊管理员清单；回复 `保留 1 3` / `删除 2` / `全部保留` / `全部删除` / 纯序号即可处理。审核窗口默认 3 小时，超时后本条消息按普通对话处理并提示超时。
+
+## 生产部署（systemd）
+
+单机 Linux 部署，NapCat 与本服务同机，全程只走 `127.0.0.1`，**不需要开放任何入站端口**（SSH 除外）。
+
+**1. 准备用户和目录**
+
+```bash
+sudo useradd -r -m -d /opt/yumababy -s /bin/bash yuma
+sudo git clone git@github.com:Yuma-625/YumaBaby.git /opt/yumababy
+cd /opt/yumababy
+sudo -u yuma python3 -m venv .venv
+sudo -u yuma .venv/bin/pip install -r requirements.txt
+sudo -u yuma mkdir -p data
+```
+
+**2. 密钥放到 `/etc`，不放在项目里**
+
+```bash
+sudo install -d -m 750 /etc/yumababy
+sudo install -m 600 -o root -g root /dev/null /etc/yumababy/env
+sudo nano /etc/yumababy/env
+```
+
+内容示例（注意 `HOST=127.0.0.1`、`DEBUG=false`、`API_AUTH_REQUIRED=true`）：
+
+```dotenv
+DEBUG=false
+HOST=127.0.0.1
+PORT=8000
+TIMEZONE=Asia/Shanghai
+API_TOKEN=用 openssl rand -hex 32 生成
+API_AUTH_REQUIRED=true
+QQ_ENABLED=true
+QQ_WS_URL=ws://127.0.0.1:3001
+QQ_ACCESS_TOKEN=与 NapCat 侧一致
+QQ_TARGET_GROUPS=你的群号
+QQ_BOT_UID=机器人QQ
+QQ_AUTO_REPLY_KEYWORDS=小鱼
+QQ_PERSONA_ADMIN=管理员QQ
+LLM_API_KEY=sk-...
+LLM_MODEL=deepseek-chat
+```
+
+**3. 安装并启动**
+
+```bash
+sudo cp deploy/systemd/yumababy.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now yumababy
+systemctl status yumababy
+journalctl -u yumababy -f
+```
+
+单元文件已内置 `Restart=always`、`ProtectSystem=strict`，仅允许写 `/opt/yumababy/data`（人设文件）。
+
+**4. NapCat**
+
+独立运行（Docker 或官方 Linux 包均可），监听 `127.0.0.1:3001`，并配置与 `QQ_ACCESS_TOKEN` 一致的 token。NapCat 不需要公网端口。
+
+**5. 访问接口**
+
+`HOST=127.0.0.1` 时外部不可达，需要时用 SSH 隧道：
+
+```bash
+ssh -L 8000:127.0.0.1:8000 yuma@服务器
+curl -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:8000/api/v1/health
+```
+
+**密钥轮换**：改 `/etc/yumababy/env` → `sudo systemctl restart yumababy`。若 Key 可能已泄露，先在 DeepSeek 后台吊销再重启。
 
 ## 测试
 

@@ -1,0 +1,36 @@
+[Unit]
+Description=YumaBaby QQ Bot (FastAPI + NapCat OneBot v11)
+Documentation=https://github.com/Yuma-625/YumaBaby
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yuma
+Group=yuma
+WorkingDirectory=/opt/yumababy
+
+# 密钥文件放在 /etc，权限 600 root:root；应用目录里不要放 .env
+EnvironmentFile=/etc/yumababy/env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/yumababy/.venv/bin/python run.py
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+# 进程加固：除 data/（人设文件）外，文件系统对服务只读
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/yumababy/data
+
+# NapCat 与本服务通过 127.0.0.1:3001 通信，无需开放任何入站端口
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=yumababy
+
+[Install]
+WantedBy=multi-user.target

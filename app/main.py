@@ -39,6 +39,21 @@ async def lifespan(app: FastAPI):
             "LLM_API_KEY 未配置或仍是占位符，对话将退化为固定文案。请在 .env 中填入真实 Key。"
         )
 
+    if not settings.API_TOKEN:
+        if settings.API_AUTH_REQUIRED:
+            logger.error(
+                "API_AUTH_REQUIRED=true 但 API_TOKEN 未配置，/chat 与 /broadcast 将一律返回 503"
+            )
+        elif not settings.host_is_loopback:
+            logger.warning(
+                "HOST=%s 且未配置 API_TOKEN：/chat 与 /broadcast 可被其他机器调用，"
+                "可能被用来消耗 LLM 额度或让机器人发消息。公网部署请设置 API_TOKEN 并开启 API_AUTH_REQUIRED。",
+                settings.HOST,
+            )
+
+    if settings.DEBUG:
+        logger.warning("DEBUG=true：uvicorn 会启用热重载，生产环境请设为 false")
+
     qq_task: asyncio.Task | None = None
     if settings.QQ_ENABLED:
         if not settings.QQ_TARGET_GROUPS:
