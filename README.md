@@ -34,12 +34,17 @@ app/
 ├─ api/routes.py    /health /skills /chat /broadcast
 ├─ models/schemas.py
 ├─ agent/
-│  ├─ core.py       技能注册 + 关键词分发（可返回命中技能名）
-│  ├─ loop.py       M0：工具调用循环（步数上限 / 重复检测 / 收尾）
+│  ├─ core.py       技能注册 + 关键词分发（回退路径）
+│  ├─ loop.py       工具调用循环（步数上限 / 重复检测 / 收尾）
+│  ├─ service.py    取历史 + 记忆 → 循环 → 落库
+│  ├─ context.py    人设 + 记忆拼装 system prompt
 │  ├─ demo.py       命令行演示：默认离线剧本，--live 走真实 API
 │  └─ scheduler.py  定时任务（20:00 人设审核；市场简报受开关控制）
 ├─ tools/
-│  └─ registry.py   工具注册表（JSON Schema + 参数校验 + 超时 + 统一错误包）
+│  ├─ registry.py   工具注册表（JSON Schema + 参数校验 + 超时 + 统一错误包）
+│  └─ builtin.py    时间 / 网页抓取（SSRF 防护）/ 记忆读写
+├─ memory/
+│  └─ store.py      SQLite：对话历史 + 按 scope 隔离的长期记忆
 ├─ adapters/
 │  ├─ base.py       适配器抽象基类
 │  └─ qq.py         NapCat 适配器：重连、去重、CQ 码清洗、自消息过滤
@@ -54,7 +59,9 @@ app/
    ├─ persona.py    人设三态：base / evolved / pending，原子落盘
    └─ helpers.py    日志配置
 tests/              unittest（无需 pytest）
-data/persona.json   运行时生成，已被 .gitignore 忽略
+data/persona.json   人设，运行时生成（已忽略）
+data/memory.db      SQLite 记忆库，运行时生成（已忽略）
+data/usage.jsonl    LLM 用量明细（已忽略）
 ```
 
 ## 消息处理链路
@@ -62,12 +69,12 @@ data/persona.json   运行时生成，已被 .gitignore 忽略
 ```
 NapCat → QQAdapter
   ├ 过滤 message_sent / 自己发的消息 / 重复 message_id
-  ├ 群消息：目标群白名单 → 关键词或 @机器人 → AgentCore
-  ├ 私聊：仅 QQ_PERSONA_ADMIN；审核窗口内按审核意见处理，否则走对话
-  └ AgentCore：stock → fund → chat，按顺序取第一个 match() 命中的技能
+  ├ 群消息：目标群白名单 → GROUP_TRIGGER_MODE 判定（@ / 关键词 / 全部）
+  ├ 私聊：QQ_PRIVATE_WHITELIST + 管理员；管理员审核窗口内按审核意见处理
+  └ AgentService（AGENT_ENABLED=true）
+       取最近 N 轮 + 相关记忆 → AgentLoop → 工具 → 回复 → 落库
 
-ChatSkill → persona.get_system_prompt() → LLM
-          → 后台按触发词/频次判断是否提炼新人设 → pending
+AGENT_ENABLED=false 时回退旧路径：AgentCore → stock/fund/chat 关键词技能
 ```
 
 ## Agent 循环（M0）
@@ -107,6 +114,32 @@ system + history + user
 | 「12 乘 34 是多少」 | 调用 `multiply(a=12, b=34)` → 408 |
 | 「介绍一下你自己」 | **不调用任何工具**，直接回答 |
 
+## Agent 接入 QQ（M1）
+
+`AGENT_ENABLED=true`（默认）时，通过触发规则的消息走 AgentLoop，不再是关键词路由。
+
+新增能力：
+
+| 模块 | 作用 |
+|---|---|
+| [app/memory/store.py](app/memory/store.py) | SQLite：`messages` 存最近对话，`memories` 按 scope 存事实 |
+| [app/agent/service.py](app/agent/service.py) | 取历史 + 检索记忆 + 跑循环 + 落库 |
+| [app/agent/context.py](app/agent/context.py) | 人设 + 记忆拼装 system prompt |
+| [app/tools/builtin.py](app/tools/builtin.py) | `get_time`、`web_fetch`、`remember`、`recall`、`forget` |
+
+记忆的 scope 由代码注入，模型看不到也改不了：
+
+| 场景 | scope | chat_id |
+|---|---|---|
+| 群聊 | `("group", 群号)` | `group:<群号>` |
+| 私聊 | `("user", QQ号)` | `user:<QQ号>` |
+
+`/health` 增加 `memory` 字段（是否启用、记忆条数）。`/chat` 在服务启动后同样走 AgentLoop。
+
+网页抓取带 SSRF 防护：只允许 http/https，解析域名后拒绝私网、回环、链路本地和保留地址，重定向逐跳校验，响应体有大小上限。
+
+关闭 Agent 回退旧行为：`AGENT_ENABLED=false`。
+
 ## 配置项
 
 | 变量 | 默认 | 说明 |
@@ -123,6 +156,16 @@ system + history + user
 | `QQ_BOT_UID` | 空 | 机器人 QQ，用于识别 `[CQ:at,...]` |
 | `QQ_AUTO_REPLY_KEYWORDS` | 空 | 命中即回复的关键词，逗号分隔 |
 | `QQ_PERSONA_ADMIN` | 空 | 管理员 QQ；为空则私聊与审核流程关闭 |
+| `QQ_PRIVATE_WHITELIST` | 空 | 允许私聊的用户，逗号分隔；管理员始终允许 |
+| `GROUP_TRIGGER_MODE` | mention_or_keyword | 群里响应方式：`mention` / `keyword` / `mention_or_keyword` / `all` |
+| `AGENT_ENABLED` | true | 是否用 AgentLoop 处理 QQ/HTTP 对话 |
+| `AGENT_MAX_STEPS` | 6 | 单轮工具调用步数上限 |
+| `AGENT_HISTORY_TURNS` | 8 | 带多少轮历史（1 轮 = 1 问 1 答） |
+| `AGENT_MEMORY_LIMIT` | 5 | 每轮注入多少条记忆 |
+| `MEMORY_DB` | data/memory.db | SQLite 路径 |
+| `WEB_FETCH_TIMEOUT` | 15 | 抓网页超时（秒） |
+| `WEB_FETCH_MAX_BYTES` | 2000000 | 响应体上限 |
+| `WEB_FETCH_MAX_CHARS` | 4000 | 喂给模型的正文上限 |
 | `MARKET_PUSH_ENABLED` | false | 是否注册 9:30/15:00 市场简报任务 |
 | `PERSONA_FEEDBACK_TTL_MINUTES` | 180 | 审核窗口超时 |
 | `PERSONA_ANALYZE_DAILY_LIMIT` | 20 | 每天最多提炼次数 |

@@ -140,8 +140,10 @@ class ToolRegistry:
         except asyncio.TimeoutError:
             logger.warning(f"工具超时: {name}")
             return finish(ToolResult(False, error=f"执行超时（>{spec.timeout}s）"))
-        except TypeError as e:
-            return finish(ToolResult(False, error=f"调用参数不匹配: {e}"))
+        except (ValueError, TypeError) as e:
+            # 参数/输入问题属于预期错误，不打完整堆栈
+            logger.warning(f"工具输入不合法 [{name}]: {e}")
+            return finish(ToolResult(False, error=f"{type(e).__name__}: {e}"))
         except Exception as e:
             logger.exception(f"工具执行失败: {name}")
             return finish(ToolResult(False, error=f"{type(e).__name__}: {e}"))

@@ -60,6 +60,10 @@ async def health(request: Request):
             "running": scheduler.running,
             "jobs": [job.id for job in scheduler.get_jobs()] if scheduler.running else [],
         },
+        "memory": {
+            "enabled": shared.memory_store is not None,
+            "memories": shared.memory_store.count_memories() if shared.memory_store else 0,
+        },
         "usage_today": usage.today_summary(),
         "started_at": started_at.isoformat() if started_at else None,
     }
@@ -74,7 +78,18 @@ async def list_skills():
 @router.post("/chat", response_model=MessageResponse,
              dependencies=[Depends(require_api_token)])
 async def chat(req: MessageRequest):
-    """向智能体发送消息"""
+    """向智能体发送消息（服务已启动时走 AgentLoop，否则回退关键词技能）"""
+    service = shared.agent_service
+    if service is not None:
+        user_id = str(req.user_id or "api")
+        reply = await service.handle(
+            req.message,
+            chat_id=f"user:{user_id}",
+            scope_type="user",
+            scope_id=user_id,
+        )
+        return MessageResponse(reply=reply, skill_used="agent")
+
     reply, skill_used = await agent.process_with_skill(req.message, context={
         "source": req.source,
         "group_id": req.group_id,

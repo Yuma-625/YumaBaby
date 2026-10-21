@@ -190,9 +190,7 @@ class QQAdapter(BaseAdapter):
         text = clean_message(raw_message)
         logger.info(f"收到群消息 [{group_id}] {user_id}: {text}")
 
-        auto_reply = any(kw and kw in text for kw in settings.QQ_AUTO_REPLY_KEYWORDS)
-        mentioned = bool(settings.QQ_BOT_UID) and f"[CQ:at,qq={settings.QQ_BOT_UID}" in raw_message
-        if not auto_reply and not mentioned:
+        if not self._is_group_triggered(raw_message, text):
             return
 
         text = self._truncate(text)
@@ -201,20 +199,38 @@ class QQAdapter(BaseAdapter):
         if self.on_message:
             self._spawn(self._process_and_reply(group_id, user_id, text))
 
+    def _is_group_triggered(self, raw_message: str, text: str) -> bool:
+        """按 GROUP_TRIGGER_MODE 判断群里这条消息要不要回应。"""
+        mode = settings.GROUP_TRIGGER_MODE
+        mentioned = bool(settings.QQ_BOT_UID) and f"[CQ:at,qq={settings.QQ_BOT_UID}" in raw_message
+        keyword = any(kw and kw in text for kw in settings.QQ_AUTO_REPLY_KEYWORDS)
+
+        if mode == "all":
+            return True
+        if mode == "mention":
+            return mentioned
+        if mode == "keyword":
+            return keyword
+        return mentioned or keyword
+
+    def _is_private_allowed(self, user_id: str) -> bool:
+        """管理员始终允许；其余人必须在 QQ_PRIVATE_WHITELIST 里。"""
+        if settings.QQ_PERSONA_ADMIN and user_id == settings.QQ_PERSONA_ADMIN:
+            return True
+        return user_id in settings.QQ_PRIVATE_WHITELIST
+
     async def _handle_private_message(self, data: dict):
         user_id = str(data.get("user_id", ""))
         raw_message = data.get("raw_message", "")
         text = clean_message(raw_message)
         logger.info(f"收到私聊消息 {user_id}: {text}")
 
-        if not settings.QQ_PERSONA_ADMIN:
-            return
-        if user_id != settings.QQ_PERSONA_ADMIN:
-            logger.debug(f"忽略非管理员私聊: {user_id}")
+        if not self._is_private_allowed(user_id):
+            logger.debug(f"忽略非白名单私聊: {user_id}")
             return
 
-        # 仅管理员私聊可进入人设审核流程
-        if self._awaiting_feedback:
+        is_admin = bool(settings.QQ_PERSONA_ADMIN) and user_id == settings.QQ_PERSONA_ADMIN
+        if is_admin and self._awaiting_feedback:
             self._awaiting_feedback = False
             if self._feedback_expired():
                 await self.send_private_msg(user_id, "人设审核已超时，本次不处理。可等待今日 20:00 的再次推送。")

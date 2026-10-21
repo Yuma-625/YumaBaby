@@ -63,6 +63,22 @@ class Settings:
     QQ_BOT_UID: str = os.getenv("QQ_BOT_UID", "")
     QQ_AUTO_REPLY_KEYWORDS: list[str] = _env_list("QQ_AUTO_REPLY_KEYWORDS")
     QQ_PERSONA_ADMIN: str = os.getenv("QQ_PERSONA_ADMIN", "")
+    # 允许私聊的用户，逗号分隔；管理员始终允许
+    QQ_PRIVATE_WHITELIST: list[str] = _env_list("QQ_PRIVATE_WHITELIST")
+    # 群里什么时候响应：mention | keyword | mention_or_keyword | all
+    GROUP_TRIGGER_MODE: str = os.getenv("GROUP_TRIGGER_MODE", "mention_or_keyword").strip().lower()
+
+    # Agent（M1）
+    AGENT_ENABLED: bool = _env_bool("AGENT_ENABLED", True)
+    AGENT_MAX_STEPS: int = _env_int("AGENT_MAX_STEPS", 6)
+    AGENT_HISTORY_TURNS: int = _env_int("AGENT_HISTORY_TURNS", 8)
+    AGENT_MEMORY_LIMIT: int = _env_int("AGENT_MEMORY_LIMIT", 5)
+    MEMORY_DB: str = os.getenv("MEMORY_DB", str(BASE_DIR / "data" / "memory.db"))
+
+    # 网页抓取
+    WEB_FETCH_TIMEOUT: float = float(os.getenv("WEB_FETCH_TIMEOUT", "15"))
+    WEB_FETCH_MAX_BYTES: int = _env_int("WEB_FETCH_MAX_BYTES", 2_000_000)
+    WEB_FETCH_MAX_CHARS: int = _env_int("WEB_FETCH_MAX_CHARS", 4000)
 
     # 数据 / 缓存
     STOCK_DATA_SOURCE: str = os.getenv("STOCK_DATA_SOURCE", "akshare")

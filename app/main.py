@@ -9,9 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import shared
 from app.adapters.qq import QQAdapter
 from app.agent.core import agent
+from app.agent.loop import AgentLoop
 from app.agent.scheduler import start_scheduler, stop_scheduler
+from app.agent.service import AgentService
 from app.api.routes import router
 from app.config import settings
+from app.memory import MemoryStore
+from app.tools.builtin import build_registry
 from app.utils import usage
 from app.utils.helpers import setup_logging
 
@@ -19,7 +23,27 @@ logger = logging.getLogger(__name__)
 
 
 async def on_qq_message(message: str, context: dict) -> str:
-    return await agent.process(message, context)
+    """QQ 消息统一走 AgentLoop；未初始化时回退到旧的关键词分发。"""
+    service = shared.agent_service
+    if service is None:
+        return await agent.process(message, context)
+
+    group_id = context.get("group_id")
+    if group_id:
+        return await service.handle(
+            message,
+            chat_id=f"group:{group_id}",
+            scope_type="group",
+            scope_id=str(group_id),
+        )
+
+    user_id = str(context.get("user_id") or "unknown")
+    return await service.handle(
+        message,
+        chat_id=f"user:{user_id}",
+        scope_type="user",
+        scope_id=user_id,
+    )
 
 
 def _log_task_result(task: asyncio.Task):
@@ -62,6 +86,19 @@ async def lifespan(app: FastAPI):
     if settings.DEBUG:
         logger.warning("DEBUG=true：uvicorn 会启用热重载，生产环境请设为 false")
 
+    if settings.AGENT_ENABLED:
+        shared.memory_store = MemoryStore(settings.MEMORY_DB)
+        registry = build_registry(shared.memory_store)
+        agent_loop = AgentLoop(
+            registry,
+            max_steps=settings.AGENT_MAX_STEPS,
+            max_tokens=500,
+        )
+        shared.agent_service = AgentService(agent_loop, shared.memory_store)
+        logger.info("Agent 已启用：记忆库 %s，工具 %s", settings.MEMORY_DB, registry.names)
+    else:
+        logger.info("AGENT_ENABLED=false，使用旧的关键词分发")
+
     qq_task: asyncio.Task | None = None
     if settings.QQ_ENABLED:
         if not settings.QQ_TARGET_GROUPS:
@@ -84,6 +121,10 @@ async def lifespan(app: FastAPI):
         if shared.qq_adapter is not None:
             await shared.qq_adapter.stop()
             shared.qq_adapter = None
+        if shared.memory_store is not None:
+            shared.memory_store.close()
+            shared.memory_store = None
+        shared.agent_service = None
         logger.info(f"{settings.APP_NAME} 已关闭")
 
 
