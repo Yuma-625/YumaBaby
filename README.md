@@ -35,7 +35,11 @@ app/
 ├─ models/schemas.py
 ├─ agent/
 │  ├─ core.py       技能注册 + 关键词分发（可返回命中技能名）
+│  ├─ loop.py       M0：工具调用循环（步数上限 / 重复检测 / 收尾）
+│  ├─ demo.py       命令行演示：默认离线剧本，--live 走真实 API
 │  └─ scheduler.py  定时任务（20:00 人设审核；市场简报受开关控制）
+├─ tools/
+│  └─ registry.py   工具注册表（JSON Schema + 参数校验 + 超时 + 统一错误包）
 ├─ adapters/
 │  ├─ base.py       适配器抽象基类
 │  └─ qq.py         NapCat 适配器：重连、去重、CQ 码清洗、自消息过滤
@@ -45,7 +49,8 @@ app/
 │  ├─ fund/         基金净值（占位，暂缓）
 │  └─ chat/         LLM 闲聊 + 帮助
 └─ utils/
-   ├─ llm.py        AsyncOpenAI 封装（超时 / 重试 / 未配置时跳过）
+   ├─ llm.py        AsyncOpenAI 封装（chat / complete / 工具调用 / 超时）
+   ├─ usage.py      LLM 用量记账与每日预算守卫
    ├─ persona.py    人设三态：base / evolved / pending，原子落盘
    └─ helpers.py    日志配置
 tests/              unittest（无需 pytest）
@@ -64,6 +69,43 @@ NapCat → QQAdapter
 ChatSkill → persona.get_system_prompt() → LLM
           → 后台按触发词/频次判断是否提炼新人设 → pending
 ```
+
+## Agent 循环（M0）
+
+`app/agent/loop.py` + `app/tools/registry.py` 是最小可用的工具调用循环，目前**只接命令行，尚未接入 QQ**。
+
+```powershell
+python -m app.agent.demo                                  # 离线剧本，不花钱
+python -m app.agent.demo --live --message "现在几点了？"    # 真实模型，自己决定调 get_time
+python -m app.agent.demo --live --message "12 乘 34 是多少" # 自己决定调 multiply
+```
+
+一轮的形状：
+
+```
+system + history + user
+  → LLM(tools=注册表)
+  → 有 tool_calls → 执行 → tool 消息回填 → 再问
+  → 没有 tool_calls → 答复
+```
+
+三道保险：
+
+| 保险 | 行为 |
+|---|---|
+| 步数上限 `max_steps` | 到达后补一次不带工具的收尾调用，让模型基于已有信息总结 |
+| 重复调用检测 | 同工具 + 同参数（含键序不同）再次出现 → 立即停止，返回「卡住了」 |
+| 工具超时 | 注册表按工具配置超时，超时作为错误回填给模型 |
+
+工具执行结果统一为 `{"ok": true, "result": ...}` 或 `{"ok": false, "error": ..., "details": [...]}`，参数错误、未知工具、异常都会被回填，模型可以据此自我修正。
+
+已验证的行为（真实 API）：
+
+| 输入 | 模型动作 |
+|---|---|
+| 「现在几点了？」 | 调用 `get_time` → 回报时间 |
+| 「12 乘 34 是多少」 | 调用 `multiply(a=12, b=34)` → 408 |
+| 「介绍一下你自己」 | **不调用任何工具**，直接回答 |
 
 ## 配置项
 
