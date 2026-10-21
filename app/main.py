@@ -12,6 +12,7 @@ from app.agent.core import agent
 from app.agent.scheduler import start_scheduler, stop_scheduler
 from app.api.routes import router
 from app.config import settings
+from app.utils import usage
 from app.utils.helpers import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,13 @@ def _log_task_result(task: asyncio.Task):
 async def lifespan(app: FastAPI):
     setup_logging()
     app.state.started_at = datetime.now(timezone.utc)
+
+    summary = usage.today_summary()
+    logger.info(
+        "今日 LLM 用量：%d 次，¥%.4f（软上限 ¥%.0f / 硬上限 ¥%.0f）",
+        summary["calls"], summary["cost_cny"],
+        summary["soft_limit_cny"], summary["hard_limit_cny"],
+    )
 
     if not settings.llm_configured:
         logger.warning(

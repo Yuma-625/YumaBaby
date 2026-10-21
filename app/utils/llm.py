@@ -3,6 +3,7 @@ import logging
 from openai import AsyncOpenAI
 
 from app.config import settings
+from app.utils import usage
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,15 @@ async def chat(
     *,
     temperature: float = 0.7,
     max_tokens: int | None = None,
+    kind: str = "chat",
 ) -> str | None:
-    """单轮调用 LLM，失败时返回 None（由调用方决定兜底文案）。"""
+    """单轮调用 LLM，失败或超预算时返回 None（由调用方决定兜底文案）。"""
     client = get_llm()
     if client is None:
         logger.debug("LLM 未配置，跳过调用")
+        return None
+
+    if usage.should_block_call():
         return None
 
     messages = []
@@ -47,6 +52,14 @@ async def chat(
             temperature=temperature,
             max_tokens=max_tokens or settings.LLM_MAX_TOKENS,
         )
+        stats = getattr(resp, "usage", None)
+        if stats is not None:
+            usage.record_usage(
+                settings.LLM_MODEL,
+                getattr(stats, "prompt_tokens", 0) or 0,
+                getattr(stats, "completion_tokens", 0) or 0,
+                kind=kind,
+            )
         content = resp.choices[0].message.content
         return content.strip() if content else None
     except Exception as e:

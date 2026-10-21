@@ -8,6 +8,7 @@ from app.agent.core import agent
 from app.agent.scheduler import scheduler
 from app.config import settings
 from app.models.schemas import BroadcastRequest, MessageRequest, MessageResponse
+from app.utils import usage
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ async def health(request: Request):
             "running": scheduler.running,
             "jobs": [job.id for job in scheduler.get_jobs()] if scheduler.running else [],
         },
+        "usage_today": usage.today_summary(),
         "started_at": started_at.isoformat() if started_at else None,
     }
 

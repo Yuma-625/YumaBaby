@@ -19,6 +19,8 @@ class ApiTest(unittest.TestCase):
         self.assertIn("qq", body)
         self.assertIn("llm_configured", body)
         self.assertEqual(body["api_auth"], {"required": False, "token_set": False})
+        self.assertIn("usage_today", body)
+        self.assertIn("level", body["usage_today"])
 
     def test_skills(self):
         resp = client.get("/api/v1/skills")

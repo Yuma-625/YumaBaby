@@ -90,7 +90,27 @@ ChatSkill → persona.get_system_prompt() → LLM
 | `LLM_MODEL` | deepseek-chat | 模型名 |
 | `LLM_TIMEOUT` | 30 | 单次请求超时（秒） |
 | `LLM_MAX_TOKENS` | 800 | 单次回复上限 |
+| `LLM_PRICE_INPUT_PER_M` | 2 | 输入单价（元/百万 token），仅用于估算 |
+| `LLM_PRICE_OUTPUT_PER_M` | 8 | 输出单价（元/百万 token） |
+| `DAILY_BUDGET_SOFT` | 10 | 日花费软上限：只告警 |
+| `DAILY_BUDGET_HARD` | 30 | 日花费硬上限：超过后跳过 LLM 调用，走兜底文案 |
+| `USAGE_LOG` | data/usage.jsonl | 用量明细文件 |
 | `LOG_LEVEL` | INFO | 日志级别 |
+
+### 用量与预算
+
+每次 LLM 调用都会把 `prompt_tokens / completion_tokens / 估算费用` 追加到 `data/usage.jsonl`，`/api/v1/health` 的 `usage_today` 返回当日汇总：
+
+```json
+"usage_today": {
+  "date": "2026-10-22", "calls": 12, "prompt_tokens": 48213,
+  "completion_tokens": 3900, "cost_cny": 0.1276,
+  "by_kind": {"chat": {"calls": 10, "cost_cny": 0.11}, "analysis": {"calls": 2, "cost_cny": 0.0176}},
+  "soft_limit_cny": 10.0, "hard_limit_cny": 30.0, "level": "ok"
+}
+```
+
+单价只是估算，实际以账单为准；把 `DAILY_BUDGET_SOFT/HARD` 设为 `0` 可关闭对应档位。
 
 ## HTTP 接口
 

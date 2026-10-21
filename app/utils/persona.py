@@ -174,7 +174,7 @@ class PersonaManager:
 
 只回复规则或「无」，不要解释。"""
 
-        result = await llm_chat(prompt, temperature=0.2, max_tokens=80)
+        result = await llm_chat(prompt, temperature=0.2, max_tokens=80, kind="analysis")
         rule = self._normalize_rule(result)
         if rule:
             self.add_pending(rule, user_msg[:50])

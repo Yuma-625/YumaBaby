@@ -87,6 +87,13 @@ class Settings:
     LLM_TIMEOUT: float = float(os.getenv("LLM_TIMEOUT", "30") or 30)
     LLM_MAX_TOKENS: int = _env_int("LLM_MAX_TOKENS", 800)
 
+    # 用量与预算（人民币元；价格按百万 token 计）
+    LLM_PRICE_INPUT_PER_M: float = float(os.getenv("LLM_PRICE_INPUT_PER_M", "2"))
+    LLM_PRICE_OUTPUT_PER_M: float = float(os.getenv("LLM_PRICE_OUTPUT_PER_M", "8"))
+    DAILY_BUDGET_SOFT: float = float(os.getenv("DAILY_BUDGET_SOFT", "10"))
+    DAILY_BUDGET_HARD: float = float(os.getenv("DAILY_BUDGET_HARD", "30"))
+    USAGE_LOG: str = os.getenv("USAGE_LOG", str(BASE_DIR / "data" / "usage.jsonl"))
+
     @property
     def llm_configured(self) -> bool:
         """是否配置了看起来可用的 LLM Key（占位符视为未配置）。"""
