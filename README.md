@@ -138,6 +138,14 @@ system + history + user
 
 网页抓取带 SSRF 防护：只允许 http/https，解析域名后拒绝私网、回环、链路本地和保留地址，重定向逐跳校验，响应体有大小上限。
 
+连发合并（M1.5）：同一会话在 `DEBOUNCE_SECONDS` 窗口内的多条消息合并成一次调用。
+
+- 缓冲按「群 + 人」隔离，群友之间的消息不会互相混入
+- 第一条命中 @ / 关键词后，窗口内后续碎片消息**不再要求触发词**（「小鱼 在吗」→ 两条合成一条）
+- 超过 `DEBOUNCE_MAX_CHARS` 或 `DEBOUNCE_MAX_MESSAGES` 立即处理，不等窗口
+- `DEBOUNCE_SECONDS=0` 关闭该行为
+- 适配器停止时取消所有待处理缓冲
+
 关闭 Agent 回退旧行为：`AGENT_ENABLED=false`。
 
 ## 配置项
@@ -158,6 +166,9 @@ system + history + user
 | `QQ_PERSONA_ADMIN` | 空 | 管理员 QQ；为空则私聊与审核流程关闭 |
 | `QQ_PRIVATE_WHITELIST` | 空 | 允许私聊的用户，逗号分隔；管理员始终允许 |
 | `GROUP_TRIGGER_MODE` | mention_or_keyword | 群里响应方式：`mention` / `keyword` / `mention_or_keyword` / `all` |
+| `DEBOUNCE_SECONDS` | 1.5 | 连发合并窗口；0 表示关闭（每条立即处理） |
+| `DEBOUNCE_MAX_CHARS` | 400 | 合并文本超过这个长度立即处理 |
+| `DEBOUNCE_MAX_MESSAGES` | 5 | 合并条数达到即立即处理 |
 | `AGENT_ENABLED` | true | 是否用 AgentLoop 处理 QQ/HTTP 对话 |
 | `AGENT_MAX_STEPS` | 6 | 单轮工具调用步数上限 |
 | `AGENT_HISTORY_TURNS` | 8 | 带多少轮历史（1 轮 = 1 问 1 答） |

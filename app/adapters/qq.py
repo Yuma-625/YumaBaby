@@ -4,6 +4,7 @@ import logging
 import re
 import uuid
 from contextlib import suppress
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import websockets
@@ -33,6 +34,16 @@ def clean_message(raw: str | None) -> str:
     return " ".join(text.split())
 
 
+@dataclass
+class _PendingChat:
+    """一个会话的连发缓冲。"""
+
+    texts: list[str] = field(default_factory=list)
+    timer: asyncio.Task | None = None
+    group_id: str | None = None
+    user_id: str | None = None
+
+
 class QQAdapter(BaseAdapter):
     """QQ 适配器 - 对接 NapCatQQ (OneBot v11 协议)"""
 
@@ -56,6 +67,7 @@ class QQAdapter(BaseAdapter):
         self._seen: dict[str, float] = {}
         self._awaiting_feedback = False
         self._awaiting_since = 0.0
+        self._pending: dict[str, _PendingChat] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -112,6 +124,7 @@ class QQAdapter(BaseAdapter):
     async def stop(self):
         """停止适配器并关闭连接。"""
         self._running = False
+        self._cancel_pending()
         ws, self._ws = self._ws, None
         self._connected = False
         if ws is not None:
@@ -190,14 +203,16 @@ class QQAdapter(BaseAdapter):
         text = clean_message(raw_message)
         logger.info(f"收到群消息 [{group_id}] {user_id}: {text}")
 
-        if not self._is_group_triggered(raw_message, text):
+        # 已经在这个会话的合并窗口里时，后续碎片消息不再要求触发词
+        active = self._pending_key(group_id, user_id) in self._pending
+        if not active and not self._is_group_triggered(raw_message, text):
             return
 
         text = self._truncate(text)
         if not text:
             return
         if self.on_message:
-            self._spawn(self._process_and_reply(group_id, user_id, text))
+            self._enqueue(text, group_id=group_id, user_id=user_id)
 
     def _is_group_triggered(self, raw_message: str, text: str) -> bool:
         """按 GROUP_TRIGGER_MODE 判断群里这条消息要不要回应。"""
@@ -244,7 +259,74 @@ class QQAdapter(BaseAdapter):
         text = self._truncate(text)
         if not text or not self.on_message:
             return
-        self._spawn(self._process_private_reply(user_id, text))
+        self._enqueue(text, user_id=user_id)
+
+    # ------------------------------------------------------------- 连发合并
+
+    @staticmethod
+    def _pending_key(group_id: str | None, user_id: str | None) -> str:
+        # 群聊按「群 + 人」隔离，避免把别人的话并进来；私聊按人
+        return f"group:{group_id}:{user_id}" if group_id else f"user:{user_id}"
+
+    def _enqueue(self, text: str, *, group_id: str | None = None, user_id: str | None = None) -> None:
+        """把消息放进对应会话的缓冲，窗口结束后合并处理。
+
+        DEBOUNCE_SECONDS<=0 时退化为立即处理。
+        """
+        if settings.DEBOUNCE_SECONDS <= 0:
+            coro = (
+                self._process_and_reply(group_id, user_id or "", text)
+                if group_id
+                else self._process_private_reply(user_id or "", text)
+            )
+            self._spawn(coro)
+            return
+
+        key = self._pending_key(group_id, user_id)
+        entry = self._pending.get(key)
+        if entry is None:
+            entry = _PendingChat(group_id=group_id, user_id=user_id)
+            self._pending[key] = entry
+
+        entry.texts.append(text)
+        if entry.timer is not None:
+            entry.timer.cancel()
+            entry.timer = None
+
+        combined = "\n".join(entry.texts)
+        if (len(combined) >= settings.DEBOUNCE_MAX_CHARS
+                or len(entry.texts) >= settings.DEBOUNCE_MAX_MESSAGES):
+            # 够长/够多就不等了，立即处理
+            self._pending.pop(key, None)
+            self._spawn(self._dispatch(entry))
+            return
+
+        entry.timer = self._spawn(self._flush_after(key, settings.DEBOUNCE_SECONDS))
+
+    async def _flush_after(self, key: str, delay: float) -> None:
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        entry = self._pending.pop(key, None)
+        if entry is not None:
+            await self._dispatch(entry)
+
+    async def _dispatch(self, entry: _PendingChat) -> None:
+        text = "\n".join(t for t in entry.texts if t).strip()
+        if not text:
+            return
+        logger.debug(f"合并 {len(entry.texts)} 条消息后处理: {text[:60]}")
+        if entry.group_id:
+            await self._process_and_reply(entry.group_id, entry.user_id or "", text)
+        else:
+            await self._process_private_reply(entry.user_id or "", text)
+
+    def _cancel_pending(self) -> None:
+        for entry in self._pending.values():
+            if entry.timer is not None:
+                entry.timer.cancel()
+        self._pending.clear()
 
     def _truncate(self, text: str) -> str:
         text = (text or "").strip()

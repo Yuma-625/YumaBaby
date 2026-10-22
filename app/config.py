@@ -67,6 +67,10 @@ class Settings:
     QQ_PRIVATE_WHITELIST: list[str] = _env_list("QQ_PRIVATE_WHITELIST")
     # 群里什么时候响应：mention | keyword | mention_or_keyword | all
     GROUP_TRIGGER_MODE: str = os.getenv("GROUP_TRIGGER_MODE", "mention_or_keyword").strip().lower()
+    # 连发合并：同一会话在这个窗口内的多条消息合并成一次处理；0 = 关闭
+    DEBOUNCE_SECONDS: float = float(os.getenv("DEBOUNCE_SECONDS", "1.5") or 0)
+    DEBOUNCE_MAX_CHARS: int = _env_int("DEBOUNCE_MAX_CHARS", 400)
+    DEBOUNCE_MAX_MESSAGES: int = _env_int("DEBOUNCE_MAX_MESSAGES", 5)
 
     # Agent（M1）
     AGENT_ENABLED: bool = _env_bool("AGENT_ENABLED", True)
