@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 
 from app.agent.context import build_system_prompt
 from app.agent.loop import AgentLoop
@@ -12,6 +13,12 @@ from app.tools.builtin import reset_scope, set_scope
 logger = logging.getLogger(__name__)
 
 _HELP_REPLIES = {"帮助", "help", "功能"}
+_WHITESPACE = re.compile(r"\s+")
+
+
+def normalize_reply(text: str) -> str:
+    """QQ 里不需要排版：把空行、换行、连续空格压成单个空格。"""
+    return _WHITESPACE.sub(" ", text or "").strip()
 
 
 def _log_task_error(task: asyncio.Task):
@@ -68,10 +75,11 @@ class AgentService:
             "agent done: stopped=%s steps=%d tools=%d chat=%s",
             result.stopped, result.steps, len(result.trace), chat_id,
         )
-        self._save(chat_id, text, result.reply)
+        reply = normalize_reply(result.reply)
+        self._save(chat_id, text, reply)
         self._log_events(chat_id, result)
-        self._maybe_learn(text, result.reply)
-        return result.reply
+        self._maybe_learn(text, reply)
+        return reply
 
     def _log_events(self, chat_id: str, result) -> None:
         """把这一轮做了什么写进 events，供日报和排障使用。"""

@@ -75,6 +75,7 @@ class Settings:
     # Agent（M1）
     AGENT_ENABLED: bool = _env_bool("AGENT_ENABLED", True)
     AGENT_MAX_STEPS: int = _env_int("AGENT_MAX_STEPS", 6)
+    AGENT_MAX_TOKENS: int = _env_int("AGENT_MAX_TOKENS", 300)
     AGENT_HISTORY_TURNS: int = _env_int("AGENT_HISTORY_TURNS", 8)
     AGENT_MEMORY_LIMIT: int = _env_int("AGENT_MEMORY_LIMIT", 5)
     MEMORY_DB: str = os.getenv("MEMORY_DB", str(BASE_DIR / "data" / "memory.db"))

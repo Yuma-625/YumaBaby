@@ -114,7 +114,7 @@ async def lifespan(app: FastAPI):
         agent_loop = AgentLoop(
             registry,
             max_steps=settings.AGENT_MAX_STEPS,
-            max_tokens=500,
+            max_tokens=settings.AGENT_MAX_TOKENS,
         )
         shared.agent_service = AgentService(agent_loop, shared.memory_store)
         logger.info("Agent 已启用：记忆库 %s，工具 %s", settings.MEMORY_DB, registry.names)

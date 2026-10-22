@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from app.agent.loop import AgentLoop
-from app.agent.service import AgentService
+from app.agent.service import AgentService, normalize_reply
 from app.memory.store import MemoryStore
 from app.tools.builtin import build_registry
 from app.utils.llm import LLMResponse, ToolCall
@@ -113,6 +113,19 @@ class AgentServiceTest(unittest.TestCase):
         ))
         self.assertIn("功能列表", reply)
         self.assertEqual(llm.messages_seen, [])
+
+    def test_normalize_reply(self):
+        self.assertEqual(normalize_reply("第一句。\n\n第二句。"), "第一句。 第二句。")
+        self.assertEqual(normalize_reply("  a \n\t b  "), "a b")
+        self.assertEqual(normalize_reply(None), "")
+
+    def test_multiline_reply_is_flattened(self):
+        service, _ = self.make_service([answer("第一句。\n\n第二句。\n\n第三句。")])
+        reply = asyncio.run(service.handle(
+            "聊聊", chat_id="user:1", scope_type="user", scope_id="1",
+        ))
+        self.assertNotIn("\n", reply)
+        self.assertEqual(reply, "第一句。 第二句。 第三句。")
 
     def test_events_are_recorded(self):
         service, _ = self.make_service([
