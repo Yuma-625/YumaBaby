@@ -69,8 +69,34 @@ class AgentService:
             result.stopped, result.steps, len(result.trace), chat_id,
         )
         self._save(chat_id, text, result.reply)
+        self._log_events(chat_id, result)
         self._maybe_learn(text, result.reply)
         return result.reply
+
+    def _log_events(self, chat_id: str, result) -> None:
+        """把这一轮做了什么写进 events，供日报和排障使用。"""
+        try:
+            self.store.add_event(
+                "reply",
+                result.stopped,
+                chat_id,
+                {"steps": result.steps, "tools": [t["tool"] for t in result.trace]},
+                ok=result.stopped == "done",
+            )
+            for item in result.trace:
+                self.store.add_event(
+                    "tool",
+                    item["tool"],
+                    chat_id,
+                    {
+                        "ok": item["ok"],
+                        "ms": item["duration_ms"],
+                        "args": item["arguments"][:200],
+                    },
+                    ok=item["ok"],
+                )
+        except Exception:
+            logger.exception("记录行为日志失败")
 
     def _maybe_learn(self, user_text: str, reply: str) -> None:
         """保留原有的人设规则提炼：触发词 + 每日上限由 persona 内部过滤。"""
@@ -87,9 +113,10 @@ class AgentService:
         task = asyncio.create_task(analyze(user_text, reply))
         task.add_done_callback(_log_task_error)
 
-    def _save(self, chat_id: str, user_text: str, reply: str) -> None:
+    def _save(self, chat_id: str, user_text: str, reply: str) -> int | None:
         try:
             self.store.save_message(chat_id, "user", user_text)
-            self.store.save_message(chat_id, "assistant", reply)
+            return self.store.save_message(chat_id, "assistant", reply)
         except Exception:
             logger.exception("保存对话失败")
+            return None

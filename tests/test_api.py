@@ -1,11 +1,15 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from app import shared
 from app.agent.scheduler import scheduler
 from app.config import settings
 from app.main import app
+from app.memory.store import MemoryStore
 
 client = TestClient(app)
 
@@ -43,6 +47,25 @@ class ApiTest(unittest.TestCase):
         resp = client.post("/api/v1/broadcast", json={"message": "hi"})
         self.assertEqual(resp.status_code, 200)
         self.assertIn(resp.json()["status"], ("ok", "error"))
+
+    def test_activity_endpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp) / "a.db")
+            store.save_message("user:1", "user", "你好")
+            store.save_message("user:1", "assistant", "在")
+            try:
+                with patch.object(shared, "memory_store", store):
+                    resp = client.get("/api/v1/activity")
+                self.assertEqual(resp.status_code, 200)
+                body = resp.json()
+                self.assertEqual(body["messages"]["received"], 1)
+                self.assertEqual(body["messages"]["sent"], 1)
+            finally:
+                store.close()
+
+    def test_activity_requires_store(self):
+        with patch.object(shared, "memory_store", None):
+            self.assertEqual(client.get("/api/v1/activity").status_code, 503)
 
     def test_lifespan_starts_and_stops_cleanly(self):
         """不启 QQ 的前提下走完 startup/shutdown，确认调度器能正常起停。"""

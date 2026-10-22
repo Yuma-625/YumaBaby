@@ -1,5 +1,6 @@
 import hmac
 import logging
+import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
@@ -73,6 +74,21 @@ async def health(request: Request):
 async def list_skills():
     """列出所有已注册技能"""
     return {"skills": agent.skill_list}
+
+
+@router.get("/activity", dependencies=[Depends(require_api_token)])
+async def activity(date: str | None = None):
+    """某一天的活动：收/发消息、工具调用、好评差评、花费。"""
+    store = shared.memory_store
+    if store is None:
+        raise HTTPException(status_code=503, detail="记忆库未初始化")
+    if date is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise HTTPException(status_code=422, detail="date 格式应为 YYYY-MM-DD")
+
+    summary = store.daily_summary(date)
+    today = usage.today_summary()
+    summary["usage"] = today if today["date"] == summary["date"] else None
+    return summary
 
 
 @router.post("/chat", response_model=MessageResponse,

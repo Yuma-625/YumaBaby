@@ -122,9 +122,10 @@ system + history + user
 
 | 模块 | 作用 |
 |---|---|
-| [app/memory/store.py](app/memory/store.py) | SQLite：`messages` 存最近对话，`memories` 按 scope 存事实 |
-| [app/agent/service.py](app/agent/service.py) | 取历史 + 检索记忆 + 跑循环 + 落库 |
+| [app/memory/store.py](app/memory/store.py) | SQLite：对话、记忆、行为日志、回复评价 |
+| [app/agent/service.py](app/agent/service.py) | 取历史 + 检索记忆 + 跑循环 + 落库 + 记录行为 |
 | [app/agent/context.py](app/agent/context.py) | 人设 + 记忆拼装 system prompt |
+| [app/agent/admin.py](app/agent/admin.py) | 管理员命令：好评/差评、今日活动 |
 | [app/tools/builtin.py](app/tools/builtin.py) | `get_time`、`web_fetch`、`remember`、`recall`、`forget` |
 
 记忆的 scope 由代码注入，模型看不到也改不了：
@@ -135,6 +136,29 @@ system + history + user
 | 私聊 | `("user", QQ号)` | `user:<QQ号>` |
 
 `/health` 增加 `memory` 字段（是否启用、记忆条数）。`/chat` 在服务启动后同样走 AgentLoop。
+
+### 对话记录、行为日志与评价
+
+只存与机器人交互的消息（私聊全部 + 群里触发后的对话），不存群聊全量。
+
+| 表 | 内容 |
+|---|---|
+| `messages` | 收/发消息，含平台 `message_id`，用于引用评价 |
+| `events` | 每轮回复（steps/stopped/tools）与每次工具调用（参数、耗时、成败） |
+| `reply_feedback` | 对某条回复的好评/差评 |
+
+管理员私聊命令（不调用 LLM）：
+
+| 发送 | 效果 |
+|---|---|
+| `好` / `好评` / `赞` / `不错` | 给最近一条回复记好评 |
+| `差` / `差评` / `不行` | 记差评 |
+| 引用某条回复再发 `好` / `差` | 评价被引用的那条 |
+| `今天干了什么` / `日报` | 返回当日收发条数、工具调用、好评差评、花费 |
+
+HTTP：`GET /api/v1/activity?date=YYYY-MM-DD`（省略 date 为今天），返回同样的统计。
+
+私聊白名单：只有 `QQ_PRIVATE_WHITELIST` 里的 QQ 能私聊，其他人一律忽略；管理员始终在白名单内。
 
 网页抓取带 SSRF 防护：只允许 http/https，解析域名后拒绝私网、回环、链路本地和保留地址，重定向逐跳校验，响应体有大小上限。
 
@@ -214,10 +238,11 @@ system + history + user
 |---|---|---|
 | GET | `/api/v1/health` | 状态：版本、LLM 是否配置、QQ 连接、调度任务 |
 | GET | `/api/v1/skills` | 已注册技能 |
+| GET | `/api/v1/activity` | 当日（或 `?date=` 指定）消息、工具、评价、花费 |
 | POST | `/api/v1/chat` | `{"message": "..."}` → `{"reply": "...", "skill_used": "chat"}` |
 | POST | `/api/v1/broadcast` | `{"message": "...", "groups": ["..."]}` 群发，需 QQ 已连接 |
 
-设置了 `API_TOKEN` 后，`/chat` 与 `/broadcast` 必须携带 `Authorization: Bearer <token>`；`/health` 与 `/skills` 保持公开只读。
+设置了 `API_TOKEN` 后，`/chat`、`/broadcast`、`/activity` 必须携带 `Authorization: Bearer <token>`；`/health` 与 `/skills` 保持公开只读。
 
 ## 人设机制
 

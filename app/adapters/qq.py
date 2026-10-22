@@ -34,6 +34,12 @@ def clean_message(raw: str | None) -> str:
     return " ".join(text.split())
 
 
+def extract_reply_id(raw: str | None) -> str | None:
+    """取引用回复指向的消息 id（[CQ:reply,id=...]）。"""
+    match = re.search(r"\[CQ:reply,id=(\d+)", raw or "")
+    return match.group(1) if match else None
+
+
 @dataclass
 class _PendingChat:
     """一个会话的连发缓冲。"""
@@ -42,6 +48,7 @@ class _PendingChat:
     timer: asyncio.Task | None = None
     group_id: str | None = None
     user_id: str | None = None
+    reply_to: str | None = None
 
 
 class QQAdapter(BaseAdapter):
@@ -56,10 +63,12 @@ class QQAdapter(BaseAdapter):
     # 单条 QQ 消息最长处理长度，避免超长文本拖垮 LLM
     MAX_MESSAGE_LENGTH = 1000
 
-    def __init__(self, on_message: Callable | None = None):
+    def __init__(self, on_message: Callable | None = None,
+                 on_reply_sent: Callable[[str, str], None] | None = None):
         self.ws_url = settings.QQ_WS_URL
         self.access_token = settings.QQ_ACCESS_TOKEN
         self.on_message = on_message
+        self.on_reply_sent = on_reply_sent
         self._ws: Any = None
         self._running = False
         self._connected = False
@@ -212,7 +221,8 @@ class QQAdapter(BaseAdapter):
         if not text:
             return
         if self.on_message:
-            self._enqueue(text, group_id=group_id, user_id=user_id)
+            self._enqueue(text, group_id=group_id, user_id=user_id,
+                          reply_to=extract_reply_id(raw_message))
 
     def _is_group_triggered(self, raw_message: str, text: str) -> bool:
         """按 GROUP_TRIGGER_MODE 判断群里这条消息要不要回应。"""
@@ -259,7 +269,7 @@ class QQAdapter(BaseAdapter):
         text = self._truncate(text)
         if not text or not self.on_message:
             return
-        self._enqueue(text, user_id=user_id)
+        self._enqueue(text, user_id=user_id, reply_to=extract_reply_id(raw_message))
 
     # ------------------------------------------------------------- 连发合并
 
@@ -268,16 +278,17 @@ class QQAdapter(BaseAdapter):
         # 群聊按「群 + 人」隔离，避免把别人的话并进来；私聊按人
         return f"group:{group_id}:{user_id}" if group_id else f"user:{user_id}"
 
-    def _enqueue(self, text: str, *, group_id: str | None = None, user_id: str | None = None) -> None:
+    def _enqueue(self, text: str, *, group_id: str | None = None,
+                 user_id: str | None = None, reply_to: str | None = None) -> None:
         """把消息放进对应会话的缓冲，窗口结束后合并处理。
 
         DEBOUNCE_SECONDS<=0 时退化为立即处理。
         """
         if settings.DEBOUNCE_SECONDS <= 0:
             coro = (
-                self._process_and_reply(group_id, user_id or "", text)
+                self._process_and_reply(group_id, user_id or "", text, reply_to)
                 if group_id
-                else self._process_private_reply(user_id or "", text)
+                else self._process_private_reply(user_id or "", text, reply_to)
             )
             self._spawn(coro)
             return
@@ -289,6 +300,8 @@ class QQAdapter(BaseAdapter):
             self._pending[key] = entry
 
         entry.texts.append(text)
+        if reply_to:
+            entry.reply_to = reply_to
         if entry.timer is not None:
             entry.timer.cancel()
             entry.timer = None
@@ -318,9 +331,9 @@ class QQAdapter(BaseAdapter):
             return
         logger.debug(f"合并 {len(entry.texts)} 条消息后处理: {text[:60]}")
         if entry.group_id:
-            await self._process_and_reply(entry.group_id, entry.user_id or "", text)
+            await self._process_and_reply(entry.group_id, entry.user_id or "", text, entry.reply_to)
         else:
-            await self._process_private_reply(entry.user_id or "", text)
+            await self._process_private_reply(entry.user_id or "", text, entry.reply_to)
 
     def _cancel_pending(self) -> None:
         for entry in self._pending.values():
@@ -350,18 +363,38 @@ class QQAdapter(BaseAdapter):
 
     # ------------------------------------------------------------------ 发消息
 
-    async def _process_and_reply(self, group_id: str, user_id: str, text: str):
+    async def _process_and_reply(self, group_id: str, user_id: str, text: str,
+                                 reply_to: str | None = None):
         result = await self.on_message(text, {
             "group_id": group_id,
             "user_id": user_id,
+            "reply_to_id": reply_to,
         })
         if result:
-            await self.send_group_msg(group_id, result)
+            response = await self.send_group_msg(group_id, result)
+            self._notify_reply_sent(f"group:{group_id}", response)
 
-    async def _process_private_reply(self, user_id: str, text: str):
-        result = await self.on_message(text, {"user_id": user_id})
+    async def _process_private_reply(self, user_id: str, text: str,
+                                     reply_to: str | None = None):
+        result = await self.on_message(text, {
+            "user_id": user_id,
+            "reply_to_id": reply_to,
+        })
         if result:
-            await self.send_private_msg(user_id, result)
+            response = await self.send_private_msg(user_id, result)
+            self._notify_reply_sent(f"user:{user_id}", response)
+
+    def _notify_reply_sent(self, chat_id: str, response: dict) -> None:
+        """把平台返回的 message_id 交给上层，用于后续引用评价。"""
+        if self.on_reply_sent is None:
+            return
+        message_id = ((response or {}).get("data") or {}).get("message_id")
+        if message_id is None:
+            return
+        try:
+            self.on_reply_sent(chat_id, str(message_id))
+        except Exception:
+            logger.exception("回复落库回调失败")
 
     def _spawn(self, coro):
         """创建后台任务并保证异常被记录，而不是静默丢失。"""

@@ -114,6 +114,18 @@ class AgentServiceTest(unittest.TestCase):
         self.assertIn("功能列表", reply)
         self.assertEqual(llm.messages_seen, [])
 
+    def test_events_are_recorded(self):
+        service, _ = self.make_service([
+            tool_call("remember", '{"text": "用户喜欢猫"}'),
+            answer("记住了"),
+        ])
+        asyncio.run(service.handle(
+            "记住我喜欢猫", chat_id="user:10001", scope_type="user", scope_id="10001",
+        ))
+        summary = self.store.daily_summary()
+        self.assertEqual(summary["events"]["reply"], 1)
+        self.assertEqual(summary["tools"], {"remember": 1})
+
     def test_learning_only_when_gated(self):
         persona = StubPersona(learn=True)
         service, _ = self.make_service([answer("好的")], persona=persona)

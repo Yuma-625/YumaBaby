@@ -29,6 +29,23 @@ async def on_qq_message(message: str, context: dict) -> str:
         return await agent.process(message, context)
 
     group_id = context.get("group_id")
+    user_id = str(context.get("user_id") or "unknown")
+
+    # 管理员私聊命令（好评/差评、今日活动），不进 LLM
+    store = shared.memory_store
+    if store is not None and not group_id and settings.QQ_PERSONA_ADMIN == user_id:
+        from app.agent.admin import handle_admin_message
+
+        handled = handle_admin_message(
+            message,
+            chat_id=f"user:{user_id}",
+            store=store,
+            reviewer=user_id,
+            reply_to_id=context.get("reply_to_id"),
+        )
+        if handled is not None:
+            return handled
+
     if group_id:
         return await service.handle(
             message,
@@ -37,13 +54,18 @@ async def on_qq_message(message: str, context: dict) -> str:
             scope_id=str(group_id),
         )
 
-    user_id = str(context.get("user_id") or "unknown")
     return await service.handle(
         message,
         chat_id=f"user:{user_id}",
         scope_type="user",
         scope_id=user_id,
     )
+
+
+def on_reply_sent(chat_id: str, platform_message_id: str) -> None:
+    """记录机器人发出消息的平台 id，供「引用回复 + 好评」定位。"""
+    if shared.memory_store is not None:
+        shared.memory_store.attach_platform_message_id(chat_id, platform_message_id)
 
 
 def _log_task_result(task: asyncio.Task):
@@ -103,7 +125,10 @@ async def lifespan(app: FastAPI):
     if settings.QQ_ENABLED:
         if not settings.QQ_TARGET_GROUPS:
             logger.warning("QQ_TARGET_GROUPS 为空，群消息将不会被处理")
-        shared.qq_adapter = QQAdapter(on_message=on_qq_message)
+        shared.qq_adapter = QQAdapter(
+            on_message=on_qq_message,
+            on_reply_sent=on_reply_sent,
+        )
         qq_task = asyncio.create_task(shared.qq_adapter.start())
         qq_task.add_done_callback(_log_task_result)
 

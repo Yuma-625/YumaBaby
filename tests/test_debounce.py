@@ -111,7 +111,9 @@ class DebounceTest(unittest.IsolatedAsyncioTestCase):
     async def test_private_message_context(self):
         self.adapter._enqueue("私聊内容", user_id="8")
         self.assertTrue(await wait_until(lambda: len(self.calls) == 1))
-        self.assertEqual(self.calls[0][1], {"user_id": "8"})
+        context = self.calls[0][1]
+        self.assertEqual(context["user_id"], "8")
+        self.assertIsNone(context["reply_to_id"])
 
 
 if __name__ == "__main__":
