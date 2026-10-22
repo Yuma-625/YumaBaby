@@ -44,7 +44,10 @@ app/
 │  ├─ registry.py   工具注册表（JSON Schema + 参数校验 + 超时 + 统一错误包）
 │  └─ builtin.py    时间 / 网页抓取（SSRF 防护）/ 记忆读写
 ├─ memory/
-│  └─ store.py      SQLite：对话历史 + 按 scope 隔离的长期记忆
+│  └─ store.py      SQLite：对话 / 记忆 / 行为日志 / 打分 / 数据集
+├─ review/
+│  ├─ server.py     本地标注台 API（0–10 分、导出 JSONL）
+│  └─ page.py       标注页面（单文件 HTML）
 ├─ adapters/
 │  ├─ base.py       适配器抽象基类
 │  └─ qq.py         NapCat 适配器：重连、去重、CQ 码清洗、自消息过滤
@@ -62,6 +65,7 @@ tests/              unittest（无需 pytest）
 data/persona.json   人设，运行时生成（已忽略）
 data/memory.db      SQLite 记忆库，运行时生成（已忽略）
 data/usage.jsonl    LLM 用量明细（已忽略）
+data/datasets/      标注导出的数据集（已忽略）
 ```
 
 ## 消息处理链路
@@ -160,6 +164,29 @@ HTTP：`GET /api/v1/activity?date=YYYY-MM-DD`（省略 date 为今天），返�
 
 私聊白名单：只有 `QQ_PRIVATE_WHITELIST` 里的 QQ 能私聊，其他人一律忽略；管理员始终在白名单内。
 
+### 0–10 分标注台（独立系统）
+
+QQ 里的「好/差」只是快速标记；真正的评分和数据集由独立的本地标注台完成，它和机器人共用同一个 SQLite。
+
+```powershell
+python -m app.review.server
+# 打开 http://127.0.0.1:8100
+```
+
+流程：
+
+1. 选日期，页面按时间顺序列出当天所有机器人回复，并带上它前面那条用户消息
+2. 逐条点 0–10 分（可写备注），点选即保存；也可用 `0`–`9`、`a` 快捷键
+3. 全部打完后点「提交今日并导出」→ 写入 `data/datasets/<日期>.jsonl` 并标记完成
+
+数据集每行：
+
+```json
+{"date":"2026-10-23","chat_id":"user:1293585554","user":"小鱼晚上","assistant":"晚上好……","score":8,"note":"语气自然","message_id":42}
+```
+
+标记为完成的天会记录在 `review_days` 表，重复提交会覆盖同一天的导出文件。标注台默认只监听 `127.0.0.1`，不对外网开放。
+
 网页抓取带 SSRF 防护：只允许 http/https，解析域名后拒绝私网、回环、链路本地和保留地址，重定向逐跳校验，响应体有大小上限。
 
 连发合并（M1.5）：同一会话在 `DEBOUNCE_SECONDS` 窗口内的多条消息合并成一次调用。
@@ -179,6 +206,8 @@ HTTP：`GET /api/v1/activity?date=YYYY-MM-DD`（省略 date 为今天），返�
 | `DEBUG` | false | 开启 uvicorn reload |
 | `HOST` / `PORT` | 0.0.0.0 / 8000 | 监听地址 |
 | `TIMEZONE` | Asia/Shanghai | 定时任务时区 |
+| `REVIEW_HOST` / `REVIEW_PORT` | 127.0.0.1 / 8100 | 标注台监听地址 |
+| `DATASETS_DIR` | data/datasets | 标注导出的数据集目录 |
 | `API_TOKEN` | 空 | HTTP API 令牌；设置后 `/chat`、`/broadcast` 必须带 `Authorization: Bearer <token>` |
 | `API_AUTH_REQUIRED` | false | 为 true 且未设 Token 时直接 503，避免裸接口上线 |
 | `QQ_ENABLED` | false | 是否启动 QQ 适配器 |

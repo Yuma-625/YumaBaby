@@ -78,6 +78,9 @@ class Settings:
     AGENT_HISTORY_TURNS: int = _env_int("AGENT_HISTORY_TURNS", 8)
     AGENT_MEMORY_LIMIT: int = _env_int("AGENT_MEMORY_LIMIT", 5)
     MEMORY_DB: str = os.getenv("MEMORY_DB", str(BASE_DIR / "data" / "memory.db"))
+    DATASETS_DIR: str = os.getenv("DATASETS_DIR", str(BASE_DIR / "data" / "datasets"))
+    REVIEW_HOST: str = os.getenv("REVIEW_HOST", "127.0.0.1")
+    REVIEW_PORT: int = _env_int("REVIEW_PORT", 8100)
 
     # 网页抓取
     WEB_FETCH_TIMEOUT: float = float(os.getenv("WEB_FETCH_TIMEOUT", "15"))

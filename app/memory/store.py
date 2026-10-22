@@ -67,6 +67,25 @@ CREATE TABLE IF NOT EXISTS reply_feedback (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_created ON reply_feedback(created_at);
+
+CREATE TABLE IF NOT EXISTS reply_scores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL UNIQUE,
+    chat_id TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    note TEXT DEFAULT '',
+    reviewer TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scores_created ON reply_scores(created_at);
+
+CREATE TABLE IF NOT EXISTS review_days (
+    day TEXT PRIMARY KEY,
+    finished_at TEXT,
+    exported_path TEXT DEFAULT '',
+    scored_count INTEGER DEFAULT 0
+);
 """
 
 _MIGRATIONS = [
@@ -197,6 +216,97 @@ class MemoryStore:
         )
         self._conn.commit()
         return int(cur.lastrowid)
+
+    # ------------------------------------------------------------------ 打分与数据集
+
+    def upsert_score(self, message_id: int, chat_id: str, score: int,
+                     reviewer: str = "", note: str = "") -> None:
+        score = int(score)
+        if not 0 <= score <= 10:
+            raise ValueError("score 必须在 0-10 之间")
+        now = _now()
+        self._conn.execute(
+            "INSERT INTO reply_scores(message_id, chat_id, score, note, reviewer, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(message_id) DO UPDATE SET score=excluded.score, note=excluded.note, "
+            "reviewer=excluded.reviewer, updated_at=excluded.updated_at",
+            (message_id, chat_id, score, note, reviewer, now, now),
+        )
+        self._conn.commit()
+
+    def get_score(self, message_id: int) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM reply_scores WHERE message_id=?", (message_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def review_items(self, day: str) -> list[dict[str, Any]]:
+        """某天的所有机器人回复，带上它前面那条用户消息和已有分数。"""
+        rows = self._conn.execute(
+            """
+            SELECT m.id AS message_id, m.chat_id, m.content AS assistant,
+                   m.created_at,
+                   (SELECT u.content FROM messages u
+                     WHERE u.chat_id = m.chat_id AND u.role = 'user' AND u.id < m.id
+                     ORDER BY u.id DESC LIMIT 1) AS user_message,
+                   s.score, s.note
+              FROM messages m
+              LEFT JOIN reply_scores s ON s.message_id = m.id
+             WHERE m.role = 'assistant' AND substr(m.created_at, 1, 10) = ?
+             ORDER BY m.id
+            """,
+            (day,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def score_stats(self, day: str) -> dict[str, Any]:
+        items = self.review_items(day)
+        scored = [i for i in items if i["score"] is not None]
+        histogram = {str(i): 0 for i in range(11)}
+        for item in scored:
+            histogram[str(item["score"])] += 1
+        avg = round(sum(i["score"] for i in scored) / len(scored), 2) if scored else None
+        return {
+            "date": day,
+            "total": len(items),
+            "scored": len(scored),
+            "remaining": len(items) - len(scored),
+            "average": avg,
+            "histogram": histogram,
+        }
+
+    def export_dataset(self, day: str) -> list[dict[str, Any]]:
+        """只导出已打分的样本，供评测/微调使用。"""
+        rows = []
+        for item in self.review_items(day):
+            if item["score"] is None:
+                continue
+            rows.append({
+                "date": day,
+                "chat_id": item["chat_id"],
+                "user": item["user_message"] or "",
+                "assistant": item["assistant"],
+                "score": item["score"],
+                "note": item["note"] or "",
+                "message_id": item["message_id"],
+            })
+        return rows
+
+    def mark_review_finished(self, day: str, path: str, count: int) -> None:
+        self._conn.execute(
+            "INSERT INTO review_days(day, finished_at, exported_path, scored_count) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(day) DO UPDATE SET "
+            "finished_at=excluded.finished_at, exported_path=excluded.exported_path, "
+            "scored_count=excluded.scored_count",
+            (day, _now(), path, int(count)),
+        )
+        self._conn.commit()
+
+    def review_status(self, day: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM review_days WHERE day=?", (day,)
+        ).fetchone()
+        return dict(row) if row else None
 
     # ------------------------------------------------------------------ 记忆
 
