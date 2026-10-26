@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app.config import settings
 from app.memory.store import MemoryStore
 
 
@@ -87,6 +88,30 @@ class MemoryStoreTest(unittest.TestCase):
         self.assertFalse(self.store.has_event_today("persona_push"))
         self.store.add_event("persona_push", "admin")
         self.assertTrue(self.store.has_event_today("persona_push"))
+
+    def test_group_context_roundtrip(self):
+        self.store.add_group_context("100", "7", "先把表情发出来", [], "奶鱼")
+        self.store.add_group_context("100", "8", "[表情:奶龙]", [{"type": "bface", "url": "u"}], "奶坤")
+        items = self.store.recent_group_context("100", limit=5)
+        self.assertEqual([i["content"] for i in items], ["先把表情发出来", "[表情:奶龙]"])
+        self.assertEqual(items[1]["sender_name"], "奶坤")
+        self.assertEqual(items[1]["attachments"][0]["type"], "bface")
+
+    def test_group_context_is_capped(self):
+        from unittest.mock import patch
+        with patch.object(settings, "GROUP_CONTEXT_MAX", 3):
+            for i in range(5):
+                self.store.add_group_context("100", "7", f"消息{i}")
+        items = self.store.recent_group_context("100", limit=10)
+        self.assertEqual(len(items), 3)
+        self.assertEqual(items[-1]["content"], "消息4")
+
+    def test_group_context_scope_isolation(self):
+        self.store.add_group_context("100", "7", "A 群的话")
+        self.store.add_group_context("200", "7", "B 群的话")
+        self.assertEqual(len(self.store.recent_group_context("100")), 1)
+        self.assertEqual(self.store.clear_group_context("100"), 1)
+        self.assertEqual(self.store.recent_group_context("100"), [])
 
     def test_usage_count_increases(self):
         self.store.remember("user", "1", "重要的事")

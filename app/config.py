@@ -71,6 +71,11 @@ class Settings:
     QQ_PARTICIPATION_GROUPS: list[str] = _env_list("QQ_PARTICIPATION_GROUPS")
     PARTICIPATION_RATE: float = float(os.getenv("PARTICIPATION_RATE", "0.15") or 0)
     PARTICIPATION_COOLDOWN_SECONDS: int = _env_int("PARTICIPATION_COOLDOWN_SECONDS", 120)
+    # 群聊短期上下文：群里最近消息的滚动缓冲（不进数据集）
+    GROUP_CONTEXT_ENABLED: bool = _env_bool("GROUP_CONTEXT_ENABLED", True)
+    GROUP_CONTEXT_MAX: int = _env_int("GROUP_CONTEXT_MAX", 50)
+    GROUP_CONTEXT_MINUTES: int = _env_int("GROUP_CONTEXT_MINUTES", 30)
+    GROUP_CONTEXT_INJECT: int = _env_int("GROUP_CONTEXT_INJECT", 10)
     # 连发合并：同一会话在这个窗口内的多条消息合并成一次处理；0 = 关闭
     DEBOUNCE_SECONDS: float = float(os.getenv("DEBOUNCE_SECONDS", "1.5") or 0)
     DEBOUNCE_MAX_CHARS: int = _env_int("DEBOUNCE_MAX_CHARS", 400)
@@ -97,6 +102,7 @@ class Settings:
     # 图片理解
     VISION_ENABLED: bool = _env_bool("VISION_ENABLED", True)
     VISION_MAX_IMAGES: int = _env_int("VISION_MAX_IMAGES", 2)
+    VISION_CONTEXT_IMAGES: int = _env_int("VISION_CONTEXT_IMAGES", 1)
     VISION_MAX_BYTES: int = _env_int("VISION_MAX_BYTES", 5_000_000)
     VISION_TIMEOUT: float = float(os.getenv("VISION_TIMEOUT", "15"))
 

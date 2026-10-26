@@ -218,6 +218,17 @@ python -m app.review.server
 
 实测：左右红蓝分色图，模型回答「左边红色，右边蓝色」。
 
+### 群聊短期上下文
+
+群里所有消息都会进一个滚动缓冲（`group_context` 表），被 @ 或触发时注入最近 10 条：
+
+- 解决“先发表情包、再 @ 它说‘用这个’”这类指代问题
+- 只保留每个群最近 `GROUP_CONTEXT_MAX` 条，注入窗口 `GROUP_CONTEXT_MINUTES` 分钟，不进 `messages`、不进数据集、不导出
+- 如果最近 3 条里有图片/表情包且当前消息没带图，会取最后一张送进视觉（`VISION_CONTEXT_IMAGES`）
+- 关闭：`GROUP_CONTEXT_ENABLED=false`
+
+真实测试：先让上下文里放一张左右分色图，再问「我刚才发的图是什么颜色」，回答「左边红右边蓝」。
+
 ### 群聊自动旁听
 
 在 `QQ_PARTICIPATION_GROUPS` 里的群：
@@ -255,6 +266,11 @@ python -m app.review.server
 | `QQ_PARTICIPATION_GROUPS` | 空 | 允许自动旁听接话的群；@/关键词仍必定回复 |
 | `PARTICIPATION_RATE` | 0.15 | 旁听消息进入模型的概率（问句翻倍），0 关闭 |
 | `PARTICIPATION_COOLDOWN_SECONDS` | 120 | 同一群两次自动接话的最小间隔 |
+| `GROUP_CONTEXT_ENABLED` | true | 是否记录群聊短期上下文 |
+| `GROUP_CONTEXT_MAX` | 50 | 每个群保留的最近消息条数 |
+| `GROUP_CONTEXT_MINUTES` | 30 | 注入上下文的时间窗口 |
+| `GROUP_CONTEXT_INJECT` | 10 | 每次注入多少条 |
+| `VISION_CONTEXT_IMAGES` | 1 | 上下文里最多带几张历史图片 |
 | `MEMORY_DECAY_DAYS` | 30 | 记忆权重衰减时间常数（天） |
 | `MEMORY_MAX_PER_SCOPE` | 200 | 每个用户/群保留的记忆上限 |
 | `DEBOUNCE_SECONDS` | 1.5 | 连发合并窗口；0 表示关闭（每条立即处理） |

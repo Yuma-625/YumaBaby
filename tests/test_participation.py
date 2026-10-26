@@ -84,6 +84,20 @@ class AutoParticipationTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.1)
             self.assertEqual(self.calls, [])
 
+    async def test_group_seen_fires_even_when_ignored(self):
+        seen = []
+        adapter = QQAdapter(
+            on_message=self.adapter.on_message,
+            on_group_seen=lambda *args: seen.append(args),
+        )
+        with patch.object(settings, "PARTICIPATION_RATE", 0):
+            await adapter._handle_group_message({
+                "group_id": "100", "user_id": "7", "raw_message": "随便说点什么",
+            })
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0][0], "100")
+        self.assertEqual(seen[0][2], "随便说点什么")
+
     async def test_resolve_at_names_and_cache(self):
         calls = []
 

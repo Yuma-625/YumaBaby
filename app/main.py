@@ -72,6 +72,18 @@ def on_reply_sent(chat_id: str, platform_message_id: str) -> None:
         shared.memory_store.attach_platform_message_id(chat_id, platform_message_id)
 
 
+def on_group_seen(group_id: str, user_id: str, text: str,
+                  sender_name: str, attachments: list) -> None:
+    """所有目标群消息都记一份短期上下文，供被 @ 时回看。"""
+    if shared.memory_store is None or not settings.GROUP_CONTEXT_ENABLED:
+        return
+    if not text.strip() and not attachments:
+        return
+    shared.memory_store.add_group_context(
+        group_id, user_id, text, attachments, sender_name
+    )
+
+
 def _log_task_result(task: asyncio.Task):
     if task.cancelled():
         return
@@ -132,6 +144,7 @@ async def lifespan(app: FastAPI):
         shared.qq_adapter = QQAdapter(
             on_message=on_qq_message,
             on_reply_sent=on_reply_sent,
+            on_group_seen=on_group_seen,
         )
         qq_task = asyncio.create_task(shared.qq_adapter.start())
         qq_task.add_done_callback(_log_task_result)

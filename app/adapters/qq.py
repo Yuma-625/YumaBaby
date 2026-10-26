@@ -197,11 +197,13 @@ class QQAdapter(BaseAdapter):
     MAX_MESSAGE_LENGTH = 1000
 
     def __init__(self, on_message: Callable | None = None,
-                 on_reply_sent: Callable[[str, str], None] | None = None):
+                 on_reply_sent: Callable[[str, str], None] | None = None,
+                 on_group_seen: Callable[[str, str, str, str, list], None] | None = None):
         self.ws_url = settings.QQ_WS_URL
         self.access_token = settings.QQ_ACCESS_TOKEN
         self.on_message = on_message
         self.on_reply_sent = on_reply_sent
+        self.on_group_seen = on_group_seen
         self._ws: Any = None
         self._running = False
         self._connected = False
@@ -346,10 +348,17 @@ class QQAdapter(BaseAdapter):
         parsed = parse_message(data)
         await self._resolve_at_names(group_id, parsed.at_targets)
         text = parsed.text
+        sender = data.get("sender") or {}
+        sender_name = str(sender.get("card") or sender.get("nickname") or "")
         logger.info(
             f"收到群消息 [{group_id}] {user_id}: {text} | "
             f"at={[t['name'] or t['qq'] for t in parsed.at_targets]}"
         )
+        if self.on_group_seen:
+            try:
+                self.on_group_seen(group_id, user_id, text, sender_name, parsed.attachments)
+            except Exception:
+                logger.exception("记录群聊上下文失败")
 
         # 已经在这个会话的合并窗口里时，后续碎片消息不再要求触发词
         active = self._pending_key(group_id, user_id) in self._pending

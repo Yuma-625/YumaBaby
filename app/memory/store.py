@@ -13,7 +13,7 @@ import logging
 import math
 import sqlite3
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -89,6 +89,17 @@ CREATE TABLE IF NOT EXISTS review_days (
     exported_path TEXT DEFAULT '',
     scored_count INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS group_context (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    sender_name TEXT DEFAULT '',
+    content TEXT NOT NULL,
+    attachments TEXT DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_group_context ON group_context(group_id, id);
 """
 
 _MIGRATIONS = [
@@ -492,6 +503,54 @@ class MemoryStore:
             "SELECT created_at FROM messages ORDER BY id DESC LIMIT 1"
         ).fetchone()
         return row["created_at"] if row else None
+
+    # ------------------------------------------------------------------ 群聊短期上下文
+
+    def add_group_context(self, group_id: str, user_id: str, content: str,
+                          attachments: list[dict[str, Any]] | None = None,
+                          sender_name: str = "") -> None:
+        payload = json.dumps(attachments, ensure_ascii=False) if attachments else ""
+        self._conn.execute(
+            "INSERT INTO group_context(group_id, user_id, sender_name, content, attachments, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (group_id, user_id, sender_name, content, payload, _now()),
+        )
+        # 只保留每个群最近 N 条
+        self._conn.execute(
+            "DELETE FROM group_context WHERE group_id=? AND id NOT IN ("
+            "SELECT id FROM group_context WHERE group_id=? ORDER BY id DESC LIMIT ?)",
+            (group_id, group_id, max(1, settings.GROUP_CONTEXT_MAX)),
+        )
+        self._conn.commit()
+
+    def recent_group_context(self, group_id: str, limit: int = 10,
+                             minutes: int | None = None) -> list[dict[str, Any]]:
+        minutes = minutes if minutes is not None else settings.GROUP_CONTEXT_MINUTES
+        try:
+            tz = ZoneInfo(settings.TIMEZONE)
+        except Exception:
+            tz = ZoneInfo("UTC")
+        cutoff = (datetime.now(tz) - timedelta(minutes=max(1, minutes))).isoformat(timespec="seconds")
+        rows = self._conn.execute(
+            "SELECT user_id, sender_name, content, attachments, created_at "
+            "FROM group_context WHERE group_id=? AND created_at>=? "
+            "ORDER BY id DESC LIMIT ?",
+            (group_id, cutoff, max(1, limit)),
+        ).fetchall()
+        result = []
+        for row in reversed(rows):
+            item = dict(row)
+            item["attachments"] = _load_attachments(item.get("attachments"))
+            result.append(item)
+        return result
+
+    def clear_group_context(self, group_id: str | None = None) -> int:
+        if group_id:
+            cur = self._conn.execute("DELETE FROM group_context WHERE group_id=?", (group_id,))
+        else:
+            cur = self._conn.execute("DELETE FROM group_context")
+        self._conn.commit()
+        return cur.rowcount
 
     def has_event_today(self, kind: str) -> bool:
         row = self._conn.execute(

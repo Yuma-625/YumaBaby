@@ -99,6 +99,25 @@ class AgentServiceTest(unittest.TestCase):
         self.assertIn("一", contents)
         self.assertIn("第一句", contents)
 
+    def test_group_context_is_injected(self):
+        self.store.add_group_context("1", "7", "[表情:奶龙]", [{"type": "bface", "url": "u"}], "奶鱼")
+        service, llm = self.make_service([answer("奶龙是吧")])
+        asyncio.run(service.handle(
+            "用这个", chat_id="group:1", scope_type="group", scope_id="1",
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("[表情:奶龙]", system)
+        self.assertIn("奶鱼", system)
+
+    def test_current_message_is_not_duplicated_in_context(self):
+        self.store.add_group_context("1", "7", "用这个", [], "奶鱼")
+        service, llm = self.make_service([answer("好")])
+        asyncio.run(service.handle(
+            "用这个", chat_id="group:1", scope_type="group", scope_id="1",
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertEqual(system.count("用这个"), 0)
+
     def test_memory_is_isolated_between_scopes(self):
         self.store.remember("user", "A", "A 的偏好")
         service, _ = self.make_service([tool_call("recall", "{}"), answer("不知道")])
