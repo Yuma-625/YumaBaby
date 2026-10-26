@@ -177,6 +177,7 @@ _CN_DIGITS = {
 _COUNT_RE = re.compile(r"(\d+|[一二两三四五六七八九十])\s*(?:个|张)")
 _ID_RE = re.compile(r"(\d+)\s*号")
 _ALL_WORDS = ("全部", "所有", "都", "每张", "每个")
+_SEND_PREFIX = re.compile(r"^(发送|发个|发|来|给我发|给我来|把)")
 MAX_SEND_IMAGES = 5
 
 
@@ -231,17 +232,27 @@ async def handle_sticker_send(
     store: MemoryStore,
     user_id: str,
 ) -> str | None:
-    """管理员发表情：`发 3 号表情` / `发出来 3 个表情包` / `都发出来` / 随机。"""
+    """管理员发表情：`发 3 号表情` / `发送大狗无语` / `发出来 3 个` / 随机。"""
     if user_id != settings.QQ_PERSONA_ADMIN:
-        return None
-    if not is_send_command(text):
         return None
 
     total = store.count_stickers()
     if total == 0:
-        return "表情库还是空的，先说「存这个表情包」存一个。"
+        return "表情库还是空的，先说「存这个表情包」存一个。" if is_send_command(text) else None
 
+    value = (text or "").strip().strip(_PUNCT)
     all_stickers = sorted(store.list_stickers(limit=200), key=lambda s: s["id"])
+    named = next(
+        (s for s in sorted(all_stickers, key=lambda s: len(s.get("name") or ""), reverse=True)
+         if s.get("name") and s["name"] in value),
+        None,
+    )
+
+    # 没有「表情」二字，但以发/发送/来开头且点名了已存表情，也认
+    if not is_send_command(text):
+        if not (named and _SEND_PREFIX.match(value)):
+            return None
+
     ids = parse_send_ids(text)
     count = parse_send_count(text)
     wants_all = any(word in text for word in _ALL_WORDS)
@@ -257,11 +268,10 @@ async def handle_sticker_send(
         chosen = all_stickers[:max(1, count)]
     elif wants_all:
         chosen = all_stickers
+    elif named:
+        chosen = [named]
     else:
-        named = next(
-            (s for s in all_stickers if s.get("name") and s["name"] in text), None
-        )
-        chosen = [named] if named else [random.choice(all_stickers)]
+        chosen = [random.choice(all_stickers)]
 
     chosen = chosen[:MAX_SEND_IMAGES]
     messages = []

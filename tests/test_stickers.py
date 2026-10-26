@@ -215,6 +215,37 @@ class StickerCommandTest(unittest.TestCase):
         ))
         self.assertTrue(reply.startswith("[CQ:image"))
 
+    def test_send_by_name_without_emoji_word(self):
+        asyncio.run(handle_sticker_command(
+            "存这个表情包，命名大狗无语", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        reply = asyncio.run(handle_sticker_send(
+            "发送大狗无语", store=self.store, user_id="1293585554",
+        ))
+        self.assertTrue(reply.startswith("[CQ:image"))
+
+    def test_name_without_send_verb_is_not_command(self):
+        asyncio.run(handle_sticker_command(
+            "存这个表情包，命名大狗无语", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        self.assertIsNone(asyncio.run(handle_sticker_send(
+            "大狗无语这个表情真不错", store=self.store, user_id="1293585554",
+        )))
+
+    def test_unknown_name_falls_through(self):
+        asyncio.run(handle_sticker_command(
+            "存这个表情包，命名大狗无语", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        self.assertIsNone(asyncio.run(handle_sticker_send(
+            "发送不存在", store=self.store, user_id="1293585554",
+        )))
+
     def test_send_missing_id(self):
         asyncio.run(save_sticker(
             self.store,
