@@ -126,6 +126,7 @@ _MIGRATIONS = [
     ("messages", "platform_message_id", "TEXT"),
     ("messages", "attachments", "TEXT DEFAULT ''"),
     ("memories", "weight", "REAL DEFAULT 1.0"),
+    ("stickers", "name", "TEXT DEFAULT ''"),
 ]
 
 
@@ -576,20 +577,33 @@ class MemoryStore:
 
     def save_sticker(self, file_hash: str, path: str, ctype: str = "",
                      summary: str = "", source_group: str = "",
-                     source_user: str = "") -> tuple[int, bool]:
-        """返回 (id, 是否新插入)。按内容 hash 去重。"""
+                     source_user: str = "", name: str = "") -> tuple[int, bool, bool]:
+        """返回 (id, 是否新插入, 是否改名)。按内容 hash 去重。"""
         existing = self._conn.execute(
-            "SELECT id FROM stickers WHERE hash=?", (file_hash,)
+            "SELECT id, name FROM stickers WHERE hash=?", (file_hash,)
         ).fetchone()
         if existing:
-            return int(existing["id"]), False
+            renamed = False
+            if name and name != (existing["name"] or ""):
+                self._conn.execute(
+                    "UPDATE stickers SET name=? WHERE id=?", (name, existing["id"])
+                )
+                self._conn.commit()
+                renamed = True
+            return int(existing["id"]), False, renamed
         cur = self._conn.execute(
-            "INSERT INTO stickers(hash, path, ctype, summary, source_group, source_user, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (file_hash, path, ctype, summary, source_group, source_user, _now()),
+            "INSERT INTO stickers(hash, path, ctype, summary, source_group, source_user, name, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (file_hash, path, ctype, summary, source_group, source_user, name, _now()),
         )
         self._conn.commit()
-        return int(cur.lastrowid), True
+        return int(cur.lastrowid), True, bool(name)
+
+    def get_sticker_by_name(self, name: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM stickers WHERE name=? ORDER BY id DESC LIMIT 1", (name,)
+        ).fetchone()
+        return dict(row) if row else None
 
     def get_sticker(self, sticker_id: int) -> dict[str, Any] | None:
         row = self._conn.execute(

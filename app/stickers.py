@@ -26,6 +26,14 @@ _ALLOWED_CTYPES = {
     "image/gif": ".gif",
 }
 _PUNCT = "。！!？?~～…、,，.  "
+_NAME_RE = re.compile(r"命名\s*[:：]?\s*[「『\"'“]?([^\s，。！？!?~～「」『』\"'“”]{1,20})")
+
+
+def parse_sticker_name(text: str) -> str:
+    match = _NAME_RE.search(text or "")
+    if not match:
+        return ""
+    return match.group(1).strip("「」『』\"'“”")
 
 
 def is_sticker_command(text: str) -> bool:
@@ -101,6 +109,7 @@ async def save_sticker(
     attachments: list[dict] | None,
     group_id: str | None,
     user_id: str,
+    text: str = "",
 ) -> str:
     attachment = _pick_attachment(attachments) or _pick_from_context(store, group_id)
     if attachment is None:
@@ -112,13 +121,15 @@ async def save_sticker(
 
     data, ctype = downloaded
     digest = hashlib.sha1(data).hexdigest()
-    sticker_id, inserted = store.save_sticker(
+    name = parse_sticker_name(text)
+    sticker_id, inserted, renamed = store.save_sticker(
         digest,
         str(Path(settings.STICKERS_DIR) / f"{digest[:16]}{_ALLOWED_CTYPES[ctype]}"),
         ctype=ctype,
         summary=str(attachment.get("summary", "")),
         source_group=group_id or "",
         source_user=user_id,
+        name=name,
     )
 
     out_dir = Path(settings.STICKERS_DIR)
@@ -128,10 +139,14 @@ async def save_sticker(
         path.write_bytes(data)
 
     total = store.count_stickers()
-    label = (attachment.get("summary") or "表情").strip("[]")
+    label = name or (attachment.get("summary") or "表情").strip("[]")
     if inserted:
-        return f"存好了，表情包 #{sticker_id}（{label}），一共 {total} 个。"
-    return f"这个之前存过了，是 #{sticker_id}（{label}），一共 {total} 个。"
+        suffix = f"「{name}」" if name else f"（{label}）"
+        return f"存好了，表情包 #{sticker_id}{suffix}，一共 {total} 个。"
+    if renamed:
+        return f"已把 #{sticker_id} 命名为「{name}」，一共 {total} 个。"
+    suffix = f"「{name}」" if name else f"（{label}）"
+    return f"这个之前存过了，是 #{sticker_id}{suffix}，一共 {total} 个。"
 
 
 async def handle_sticker_command(
@@ -147,7 +162,8 @@ async def handle_sticker_command(
     if user_id != settings.QQ_PERSONA_ADMIN:
         return None
     return await save_sticker(
-        store, attachments=attachments, group_id=group_id, user_id=user_id
+        store, attachments=attachments, group_id=group_id, user_id=user_id,
+        text=text,
     )
 
 
@@ -242,7 +258,10 @@ async def handle_sticker_send(
     elif wants_all:
         chosen = all_stickers
     else:
-        chosen = [random.choice(all_stickers)]
+        named = next(
+            (s for s in all_stickers if s.get("name") and s["name"] in text), None
+        )
+        chosen = [named] if named else [random.choice(all_stickers)]
 
     chosen = chosen[:MAX_SEND_IMAGES]
     messages = []

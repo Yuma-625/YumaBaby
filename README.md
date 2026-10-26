@@ -271,7 +271,20 @@ python -m app.review.server
 2. 引用消息里的图片（`get_msg` 回填）
 3. 最近 `STICKER_LOOKBACK_MINUTES` 分钟内群上下文里的最后一张图
 
-保存到 `data/stickers/<sha1>.<ext>`，`stickers` 表记录 hash、来源、时间；同一张图按内容 hash 去重。文件名以外的信息都不会外发。
+保存到 `data/stickers/<sha1>.<ext>`，`stickers` 表记录 hash、名称、来源、时间；同一张图按内容 hash 去重。文件名以外的信息都不会外发。
+
+存的时候可以顺手命名：
+
+```text
+存这个表情包，命名奶龙坐
+保存这个表情 命名：奶龙
+```
+
+同名图片重复存不会新增；对已存过的图重新命名会更新名字。之后可以直接按名字发：
+
+```text
+发奶龙坐表情
+```
 
 发回来同样是管理员指令：
 

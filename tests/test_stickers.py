@@ -17,6 +17,7 @@ from app.stickers import (
     parse_send_count,
     parse_send_id,
     parse_send_ids,
+    parse_sticker_name,
     save_sticker,
 )
 
@@ -174,6 +175,45 @@ class StickerCommandTest(unittest.TestCase):
     def test_parse_count(self):
         self.assertEqual(parse_send_count("发出来。3个表情包"), 3)
         self.assertEqual(parse_send_count("两个表情包都发出来"), 2)
+
+    def test_parse_sticker_name(self):
+        self.assertEqual(parse_sticker_name("存这个表情包，命名奶龙坐"), "奶龙坐")
+        self.assertEqual(parse_sticker_name("存这个表情包 命名：奶龙"), "奶龙")
+        self.assertEqual(parse_sticker_name("存这个表情包"), "")
+
+    def test_named_save(self):
+        reply = asyncio.run(handle_sticker_command(
+            "存这个表情包，命名奶龙坐", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        self.assertIn("奶龙坐", reply)
+        self.assertEqual(self.store.list_stickers()[0]["name"], "奶龙坐")
+
+    def test_rename_existing_sticker(self):
+        asyncio.run(handle_sticker_command(
+            "存这个表情包", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        reply = asyncio.run(handle_sticker_command(
+            "存这个表情包，命名新名字", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        self.assertIn("已把", reply)
+        self.assertEqual(self.store.list_stickers()[0]["name"], "新名字")
+
+    def test_send_by_name(self):
+        asyncio.run(handle_sticker_command(
+            "存这个表情包，命名奶龙坐", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        reply = asyncio.run(handle_sticker_send(
+            "发奶龙坐表情", store=self.store, user_id="1293585554",
+        ))
+        self.assertTrue(reply.startswith("[CQ:image"))
 
     def test_send_missing_id(self):
         asyncio.run(save_sticker(
