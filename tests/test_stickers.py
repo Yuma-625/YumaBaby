@@ -330,15 +330,25 @@ class StickerCommandTest(unittest.TestCase):
         ))
         self.assertIn("空的", reply)
 
-    def test_send_non_admin_ignored(self):
+    def test_send_allowed_for_non_admin(self):
         asyncio.run(save_sticker(
             self.store,
             attachments=[{"type": "image", "url": data_uri()}],
             group_id="100", user_id="1293585554",
         ))
-        self.assertIsNone(asyncio.run(handle_sticker_send(
+        reply = asyncio.run(handle_sticker_send(
             "发个表情", store=self.store, user_id="12345",
-        )))
+        ))
+        self.assertTrue(reply.startswith("[CQ:image"))
+
+    def test_save_still_admin_only(self):
+        reply = asyncio.run(handle_sticker_command(
+            "存这个表情包", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="12345",
+        ))
+        self.assertIsNone(reply)
+        self.assertEqual(self.store.count_stickers(), 0)
 
 
 if __name__ == "__main__":

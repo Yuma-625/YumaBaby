@@ -47,7 +47,7 @@ async def on_qq_message(message: str, context: dict) -> str:
             if handled is not None:
                 return handled
 
-        from app.stickers import handle_sticker_command, handle_sticker_send
+        from app.stickers import handle_sticker_command
 
         sticker_reply = await handle_sticker_command(
             message,
@@ -58,6 +58,10 @@ async def on_qq_message(message: str, context: dict) -> str:
         )
         if sticker_reply is not None:
             return sticker_reply
+
+    # 发表情：所有能跟机器人说话的人都可以
+    if store is not None:
+        from app.stickers import handle_sticker_send
 
         sticker_send = await handle_sticker_send(
             message, store=store, user_id=user_id

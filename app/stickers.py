@@ -332,10 +332,7 @@ async def handle_sticker_send(
     store: MemoryStore,
     user_id: str,
 ) -> str | None:
-    """管理员发表情：`发 3 号表情` / `发送大狗无语` / `发出来 3 个` / 随机。"""
-    if user_id != settings.QQ_PERSONA_ADMIN:
-        return None
-
+    """发表情：所有人可用（保存仍限管理员）。"""
     if _files_missing(store):
         logger.info("检测到表情文件缺失或改名，执行同步")
         sync_sticker_files(store)
