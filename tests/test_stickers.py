@@ -313,6 +313,49 @@ class StickerCommandTest(unittest.TestCase):
         self.assertFalse(old_path.exists())
         self.assertTrue(new_path.exists())
 
+    def test_duplicate_name_is_blocked(self):
+        asyncio.run(handle_sticker_command(
+            "存这个表情包，命名重名测试", store=self.store,
+            attachments=[{"type": "image", "url": data_uri((255, 0, 0))}],
+            group_id="100", user_id="1293585554",
+        ))
+        reply = asyncio.run(handle_sticker_command(
+            "存这个表情包，命名重名测试", store=self.store,
+            attachments=[{"type": "image", "url": data_uri((0, 255, 0))}],
+            group_id="100", user_id="1293585554",
+        ))
+        self.assertIn("已经被", reply)
+        self.assertIn("#1", reply)
+        self.assertEqual(self.store.count_stickers(), 1)
+
+    def test_duplicate_name_allows_same_image(self):
+        attachment = {"type": "image", "url": data_uri()}
+        asyncio.run(handle_sticker_command(
+            "存这个表情包，命名同一个", store=self.store,
+            attachments=[attachment], group_id="100", user_id="1293585554",
+        ))
+        reply = asyncio.run(handle_sticker_command(
+            "存这个表情包，命名同一个", store=self.store,
+            attachments=[attachment], group_id="100", user_id="1293585554",
+        ))
+        self.assertIn("之前存过", reply)
+        self.assertEqual(self.store.count_stickers(), 1)
+
+    def test_rename_into_taken_name_is_blocked(self):
+        for color, name in (((255, 0, 0), "甲"), ((0, 255, 0), "乙")):
+            asyncio.run(handle_sticker_command(
+                f"存这个表情包，命名{name}", store=self.store,
+                attachments=[{"type": "image", "url": data_uri(color)}],
+                group_id="100", user_id="1293585554",
+            ))
+        reply = asyncio.run(handle_sticker_command(
+            "存这个表情包，命名甲", store=self.store,
+            attachments=[{"type": "image", "url": data_uri((0, 0, 255))}],
+            group_id="100", user_id="1293585554",
+        ))
+        self.assertIn("已经被", reply)
+        self.assertEqual(self.store.count_stickers(), 2)
+
     def test_send_missing_id(self):
         asyncio.run(save_sticker(
             self.store,

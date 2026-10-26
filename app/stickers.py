@@ -127,6 +127,17 @@ async def save_sticker(
     ext = _ALLOWED_CTYPES[ctype]
 
     existing = store.get_sticker_by_hash(digest)
+    if name:
+        conflict = store.get_sticker_by_name(name)
+        if conflict is not None and (
+            existing is None or int(conflict["id"]) != int(existing["id"])
+        ):
+            taken = Path(conflict["path"]).stem or conflict["name"]
+            return (
+                f"「{name}」这个名字已经被 #{conflict['id']} 用了（{taken}），"
+                "换一个名字吧，比如加个后缀。"
+            )
+
     if existing is not None:
         old_path = Path(existing["path"])
         final_name = name or existing.get("name") or ""
