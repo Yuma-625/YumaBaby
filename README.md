@@ -229,6 +229,21 @@ python -m app.review.server
 
 真实测试：先让上下文里放一张左右分色图，再问「我刚才发的图是什么颜色」，回答「左边红右边蓝」。
 
+### 只读群与每日群聊分析
+
+`QQ_READONLY_GROUPS` 里的群：
+
+- 照常接收消息、写入 `group_context`，供上下文和总结使用
+- **永不发言**：不回复 @、不参与旁听、不响应任何指令
+- 记录完直接返回，不会进入 AgentLoop
+
+`GROUP_ANALYSIS_GROUPS` 里的群每天 **23:40** 自动分析：
+
+- 机器统计：消息量、发言人数、人均字数、图片/表情占比、活跃时段、发言最多的人、口头禅
+- 模型观察：今天聊了什么、成员的说话与表情习惯
+- 报告存进 `group_reports` 表，并私聊发给管理员，不发群
+- 每个群每天只出一次，`events` 里记 `group_report`
+
 ### 群聊总结
 
 管理员在群里发：
@@ -303,10 +318,12 @@ python -m app.review.server
 | `QQ_PRIVATE_WHITELIST` | 空 | 允许私聊的用户，逗号分隔；管理员始终允许 |
 | `GROUP_TRIGGER_MODE` | mention_or_keyword | 群里响应方式：`mention` / `keyword` / `mention_or_keyword` / `all` |
 | `QQ_PARTICIPATION_GROUPS` | 空 | 允许自动旁听接话的群；@/关键词仍必定回复 |
+| `QQ_READONLY_GROUPS` | 空 | 只读群：只记录消息，任何情况下都不发言 |
+| `GROUP_ANALYSIS_GROUPS` | 空 | 每晚 23:40 分析这些群，报告私聊给管理员 |
 | `PARTICIPATION_RATE` | 0.15 | 旁听消息进入模型的概率（问句翻倍），0 关闭 |
 | `PARTICIPATION_COOLDOWN_SECONDS` | 120 | 同一群两次自动接话的最小间隔 |
 | `GROUP_CONTEXT_ENABLED` | true | 是否记录群聊短期上下文 |
-| `GROUP_CONTEXT_MAX` | 50 | 每个群保留的最近消息条数 |
+| `GROUP_CONTEXT_MAX` | 300 | 每个群保留的最近消息条数 |
 | `GROUP_CONTEXT_MINUTES` | 30 | 注入上下文的时间窗口 |
 | `GROUP_CONTEXT_INJECT` | 10 | 每次注入多少条 |
 | `VISION_CONTEXT_IMAGES` | 1 | 上下文里最多带几张历史图片 |

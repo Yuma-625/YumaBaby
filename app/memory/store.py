@@ -111,6 +111,15 @@ CREATE TABLE IF NOT EXISTS stickers (
     source_user TEXT DEFAULT '',
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS group_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    report TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(group_id, day)
+);
 """
 
 _MIGRATIONS = [
@@ -597,6 +606,39 @@ class MemoryStore:
             "SELECT * FROM stickers ORDER BY id DESC LIMIT ?", (max(1, limit),)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------ 日报
+
+    def group_context_for_day(self, group_id: str, day: str,
+                              limit: int = 2000) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT user_id, sender_name, content, attachments, created_at "
+            "FROM group_context WHERE group_id=? AND substr(created_at,1,10)=? "
+            "ORDER BY id ASC LIMIT ?",
+            (group_id, day, max(1, limit)),
+        ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["attachments"] = _load_attachments(item.get("attachments"))
+            result.append(item)
+        return result
+
+    def save_group_report(self, group_id: str, day: str, report: str) -> None:
+        self._conn.execute(
+            "INSERT INTO group_reports(group_id, day, report, created_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(group_id, day) DO UPDATE SET report=excluded.report, "
+            "created_at=excluded.created_at",
+            (group_id, day, report, _now()),
+        )
+        self._conn.commit()
+
+    def get_group_report(self, group_id: str, day: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT report FROM group_reports WHERE group_id=? AND day=?",
+            (group_id, day),
+        ).fetchone()
+        return row["report"] if row else None
 
     def has_event_today(self, kind: str) -> bool:
         row = self._conn.execute(

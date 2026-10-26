@@ -371,6 +371,10 @@ class QQAdapter(BaseAdapter):
             except Exception:
                 logger.exception("记录群聊上下文失败")
 
+        # 只读群：记录完就结束，任何情况下都不发言
+        if group_id in settings.QQ_READONLY_GROUPS:
+            return
+
         # 已经在这个会话的合并窗口里时，后续碎片消息不再要求触发词
         active = self._pending_key(group_id, user_id) in self._pending
         auto = False

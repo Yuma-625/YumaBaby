@@ -60,6 +60,10 @@ class Settings:
     QQ_WS_URL: str = os.getenv("QQ_WS_URL", "ws://127.0.0.1:6700")
     QQ_ACCESS_TOKEN: str = os.getenv("QQ_ACCESS_TOKEN", "")
     QQ_TARGET_GROUPS: list[str] = _env_list("QQ_TARGET_GROUPS")
+    # 只读群：照常记录消息，但永不发言
+    QQ_READONLY_GROUPS: list[str] = _env_list("QQ_READONLY_GROUPS")
+    # 每日群聊分析（结果私聊给管理员）
+    GROUP_ANALYSIS_GROUPS: list[str] = _env_list("GROUP_ANALYSIS_GROUPS")
     QQ_BOT_UID: str = os.getenv("QQ_BOT_UID", "")
     QQ_AUTO_REPLY_KEYWORDS: list[str] = _env_list("QQ_AUTO_REPLY_KEYWORDS")
     QQ_PERSONA_ADMIN: str = os.getenv("QQ_PERSONA_ADMIN", "")
@@ -73,7 +77,7 @@ class Settings:
     PARTICIPATION_COOLDOWN_SECONDS: int = _env_int("PARTICIPATION_COOLDOWN_SECONDS", 120)
     # 群聊短期上下文：群里最近消息的滚动缓冲（不进数据集）
     GROUP_CONTEXT_ENABLED: bool = _env_bool("GROUP_CONTEXT_ENABLED", True)
-    GROUP_CONTEXT_MAX: int = _env_int("GROUP_CONTEXT_MAX", 120)
+    GROUP_CONTEXT_MAX: int = _env_int("GROUP_CONTEXT_MAX", 300)
     GROUP_CONTEXT_MINUTES: int = _env_int("GROUP_CONTEXT_MINUTES", 30)
     GROUP_CONTEXT_INJECT: int = _env_int("GROUP_CONTEXT_INJECT", 10)
     # 群聊总结

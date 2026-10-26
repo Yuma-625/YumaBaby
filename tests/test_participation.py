@@ -144,6 +144,20 @@ class AutoParticipationTest(unittest.IsolatedAsyncioTestCase):
         self.assertLess(loop.time() - started, 0.1)
         await asyncio.sleep(0)
 
+    async def test_readonly_group_records_without_reply(self):
+        seen = []
+        adapter = QQAdapter(
+            on_message=self.adapter.on_message,
+            on_group_seen=lambda *args: seen.append(args),
+        )
+        with patch.object(settings, "QQ_READONLY_GROUPS", ["100"]):
+            await adapter._handle_group_message({
+                "group_id": "100", "user_id": "7", "raw_message": "小鱼你好",
+            })
+        self.assertEqual(len(seen), 1)
+        await asyncio.sleep(0.1)
+        self.assertEqual(self.calls, [])
+
     async def test_resolve_at_names_and_cache(self):
         calls = []
 

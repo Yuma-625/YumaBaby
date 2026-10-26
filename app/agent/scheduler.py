@@ -99,6 +99,32 @@ class ScheduledTasks:
         except Exception:
             logger.exception("记忆维护失败")
 
+    async def push_group_analysis(self):
+        """每晚分析只读群的聊天特征，私聊给管理员。"""
+        from app import shared
+        from app.group_analysis import build_report
+
+        store = shared.memory_store
+        adapter = shared.qq_adapter
+        if store is None or adapter is None or not adapter.is_connected:
+            return
+        if not settings.QQ_PERSONA_ADMIN or not settings.GROUP_ANALYSIS_GROUPS:
+            return
+
+        for group_id in settings.GROUP_ANALYSIS_GROUPS:
+            if store.count_events_today("group_report", group_id):
+                logger.info(f"群 {group_id} 今天已出过日报，跳过")
+                continue
+            try:
+                report = await build_report(store, group_id)
+                if not report:
+                    continue
+                await adapter.send_private_msg(settings.QQ_PERSONA_ADMIN, report)
+                store.add_event("group_report", group_id, group_id, {"chars": len(report)})
+                logger.info(f"群 {group_id} 日报已发送")
+            except Exception:
+                logger.exception(f"群 {group_id} 日报生成失败")
+
 
 tasks = ScheduledTasks()
 
@@ -152,6 +178,17 @@ def start_scheduler():
         replace_existing=True,
         **JOB_DEFAULTS,
     )
+    if settings.GROUP_ANALYSIS_GROUPS:
+        scheduler.add_job(
+            tasks.push_group_analysis,
+            "cron",
+            hour=23,
+            minute=40,
+            id="group_analysis",
+            replace_existing=True,
+            **JOB_DEFAULTS,
+        )
+        logger.info(f"群聊日报任务已启用: {settings.GROUP_ANALYSIS_GROUPS}")
     scheduler.start()
     logger.info("定时任务已启动")
 
