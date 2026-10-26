@@ -47,6 +47,7 @@ class AgentService:
         scope_id: str,
         auto_participate: bool = False,
         at_targets: list[dict] | None = None,
+        attachments: list[dict] | None = None,
     ) -> str:
         text = (text or "").strip()
         if not text:
@@ -56,7 +57,7 @@ class AgentService:
         if text.lower() in _HELP_REPLIES:
             from app.skills.chat.handler import build_help_text
             reply = build_help_text()
-            self._save(chat_id, text, reply)
+            self._save(chat_id, text, reply, attachments)
             return reply
 
         history = self.store.recent_messages(chat_id, settings.AGENT_HISTORY_TURNS * 2)
@@ -103,7 +104,7 @@ class AgentService:
             "agent done: stopped=%s steps=%d tools=%d chat=%s",
             result.stopped, result.steps, len(result.trace), chat_id,
         )
-        self._save(chat_id, text, reply)
+        self._save(chat_id, text, reply, attachments)
         self._log_events(chat_id, result)
         self._maybe_learn(text, reply)
         return reply
@@ -148,9 +149,10 @@ class AgentService:
         task = asyncio.create_task(analyze(user_text, reply))
         task.add_done_callback(_log_task_error)
 
-    def _save(self, chat_id: str, user_text: str, reply: str) -> int | None:
+    def _save(self, chat_id: str, user_text: str, reply: str,
+              attachments: list[dict] | None = None) -> int | None:
         try:
-            self.store.save_message(chat_id, "user", user_text)
+            self.store.save_message(chat_id, "user", user_text, attachments=attachments)
             return self.store.save_message(chat_id, "assistant", reply)
         except Exception:
             logger.exception("保存对话失败")

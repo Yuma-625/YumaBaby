@@ -54,18 +54,30 @@ class ParsedMessage:
     at_targets: list[dict[str, str]] = field(default_factory=list)
     at_bot: bool = False
     reply_to: str | None = None
+    attachments: list[dict[str, str]] = field(default_factory=list)
+
+
+def _image_placeholder(payload: dict) -> str:
+    summary = str(payload.get("summary", "")).strip()
+    if summary and summary not in ("[图片]", "[image]"):
+        return f"[图片:{summary}]"
+    return "[图片]"
+
+
+def _emoji_placeholder(payload: dict) -> str:
+    summary = str(payload.get("summary", "")).strip().strip("[]")
+    return f"[表情:{summary}]" if summary else "[表情]"
 
 
 def parse_message(data: dict) -> ParsedMessage:
     """同时兼容 messagePostFormat=array 与 string。
 
-    - array：从 message 段里取 text / at / reply
-    - string：退回 raw_message，用 CQ 码正则解析
-
-    @ 目标优先带昵称；没有昵称时用 QQ 号，至少不让信息丢失。
+    文本之外还保留 @ 目标、引用 id，以及图片/表情元数据。
+    图片本身不下载，只记 url/file/summary，留给后续视觉处理。
     """
     bot_uid = str(settings.QQ_BOT_UID or "")
     targets: list[dict[str, str]] = []
+    attachments: list[dict[str, str]] = []
     reply_to: str | None = None
     message = data.get("message")
 
@@ -90,6 +102,24 @@ def parse_message(data: dict) -> ParsedMessage:
                 rid = str(payload.get("id", "")).strip()
                 if rid:
                     reply_to = rid
+            elif seg_type == "image":
+                attachments.append({
+                    "type": "image",
+                    "url": str(payload.get("url", "")),
+                    "file": str(payload.get("file", "")),
+                    "summary": str(payload.get("summary", "")),
+                })
+                parts.append(" " + _image_placeholder(payload) + " ")
+            elif seg_type == "mface":
+                attachments.append({
+                    "type": "mface",
+                    "url": str(payload.get("url", "")),
+                    "summary": str(payload.get("summary", "")),
+                })
+                parts.append(" " + _emoji_placeholder(payload) + " ")
+            elif seg_type == "face":
+                attachments.append({"type": "face", "summary": str(payload.get("id", ""))})
+                parts.append(" [表情] ")
         text = " ".join("".join(parts).split())
     else:
         raw = data.get("raw_message", "") or ""
@@ -97,9 +127,36 @@ def parse_message(data: dict) -> ParsedMessage:
         for qq in re.findall(r"\[CQ:at,qq=(\d+)", raw):
             targets.append({"qq": qq, "name": ""})
         reply_to = extract_reply_id(raw)
+        for match in re.finditer(r"\[CQ:(image|mface|face)([^\]]*)\]", raw):
+            seg_type = match.group(1)
+            params = dict(re.findall(r"(\w+)=([^,\]]+)", match.group(2)))
+            if seg_type == "image":
+                attachments.append({
+                    "type": "image",
+                    "url": params.get("url", ""),
+                    "file": params.get("file", ""),
+                    "summary": params.get("summary", ""),
+                })
+                text = f"{text} [图片]".strip()
+            elif seg_type == "mface":
+                attachments.append({
+                    "type": "mface",
+                    "url": params.get("url", ""),
+                    "summary": params.get("summary", ""),
+                })
+                text = f"{text} {_emoji_placeholder(params)}".strip()
+            else:
+                attachments.append({"type": "face", "summary": params.get("id", "")})
+                text = f"{text} [表情]".strip()
 
     at_bot = bool(bot_uid) and any(t["qq"] == bot_uid for t in targets)
-    return ParsedMessage(text=text, at_targets=targets, at_bot=at_bot, reply_to=reply_to)
+    return ParsedMessage(
+        text=text,
+        at_targets=targets,
+        at_bot=at_bot,
+        reply_to=reply_to,
+        attachments=attachments,
+    )
 
 
 @dataclass
@@ -113,6 +170,7 @@ class _PendingChat:
     reply_to: str | None = None
     auto: bool = False
     at_targets: list[dict[str, str]] = field(default_factory=list)
+    attachments: list[dict[str, str]] = field(default_factory=list)
 
 
 class QQAdapter(BaseAdapter):
@@ -302,7 +360,7 @@ class QQAdapter(BaseAdapter):
             self._enqueue(
                 text, group_id=group_id, user_id=user_id,
                 reply_to=parsed.reply_to, auto=auto,
-                at_targets=parsed.at_targets,
+                at_targets=parsed.at_targets, attachments=parsed.attachments,
             )
 
     async def _resolve_at_names(self, group_id: str, targets: list[dict[str, str]]) -> None:
@@ -372,8 +430,8 @@ class QQAdapter(BaseAdapter):
 
     async def _handle_private_message(self, data: dict):
         user_id = str(data.get("user_id", ""))
-        raw_message = data.get("raw_message", "")
-        text = clean_message(raw_message)
+        parsed = parse_message(data)
+        text = parsed.text
         logger.info(f"收到私聊消息 {user_id}: {text}")
 
         if not self._is_private_allowed(user_id):
@@ -395,7 +453,10 @@ class QQAdapter(BaseAdapter):
         text = self._truncate(text)
         if not text or not self.on_message:
             return
-        self._enqueue(text, user_id=user_id, reply_to=extract_reply_id(raw_message))
+        self._enqueue(
+            text, user_id=user_id, reply_to=parsed.reply_to,
+            attachments=parsed.attachments,
+        )
 
     # ------------------------------------------------------------- 连发合并
 
@@ -406,16 +467,19 @@ class QQAdapter(BaseAdapter):
 
     def _enqueue(self, text: str, *, group_id: str | None = None,
                  user_id: str | None = None, reply_to: str | None = None,
-                 auto: bool = False, at_targets: list[dict[str, str]] | None = None) -> None:
+                 auto: bool = False, at_targets: list[dict[str, str]] | None = None,
+                 attachments: list[dict[str, str]] | None = None) -> None:
         """把消息放进对应会话的缓冲，窗口结束后合并处理。
 
         DEBOUNCE_SECONDS<=0 时退化为立即处理。
         """
         if settings.DEBOUNCE_SECONDS <= 0:
             coro = (
-                self._process_and_reply(group_id, user_id or "", text, reply_to, auto)
+                self._process_and_reply(
+                    group_id, user_id or "", text, reply_to, auto, at_targets, attachments
+                )
                 if group_id
-                else self._process_private_reply(user_id or "", text, reply_to)
+                else self._process_private_reply(user_id or "", text, reply_to, attachments)
             )
             self._spawn(coro)
             return
@@ -433,6 +497,9 @@ class QQAdapter(BaseAdapter):
         for target in at_targets or []:
             if target not in entry.at_targets:
                 entry.at_targets.append(target)
+        for media in attachments or []:
+            if media not in entry.attachments:
+                entry.attachments.append(media)
         if reply_to:
             entry.reply_to = reply_to
         if entry.timer is not None:
@@ -466,10 +533,12 @@ class QQAdapter(BaseAdapter):
         if entry.group_id:
             await self._process_and_reply(
                 entry.group_id, entry.user_id or "", text, entry.reply_to,
-                entry.auto, entry.at_targets,
+                entry.auto, entry.at_targets, entry.attachments,
             )
         else:
-            await self._process_private_reply(entry.user_id or "", text, entry.reply_to)
+            await self._process_private_reply(
+                entry.user_id or "", text, entry.reply_to, entry.attachments
+            )
 
     def _cancel_pending(self) -> None:
         for entry in self._pending.values():
@@ -501,23 +570,27 @@ class QQAdapter(BaseAdapter):
 
     async def _process_and_reply(self, group_id: str, user_id: str, text: str,
                                  reply_to: str | None = None, auto: bool = False,
-                                 at_targets: list[dict[str, str]] | None = None):
+                                 at_targets: list[dict[str, str]] | None = None,
+                                 attachments: list[dict[str, str]] | None = None):
         result = await self.on_message(text, {
             "group_id": group_id,
             "user_id": user_id,
             "reply_to_id": reply_to,
             "auto_participate": auto,
             "at_targets": at_targets or [],
+            "attachments": attachments or [],
         })
         if result:
             response = await self.send_group_msg(group_id, result)
             self._notify_reply_sent(f"group:{group_id}", response)
 
     async def _process_private_reply(self, user_id: str, text: str,
-                                     reply_to: str | None = None):
+                                     reply_to: str | None = None,
+                                     attachments: list[dict[str, str]] | None = None):
         result = await self.on_message(text, {
             "user_id": user_id,
             "reply_to_id": reply_to,
+            "attachments": attachments or [],
         })
         if result:
             response = await self.send_private_msg(user_id, result)

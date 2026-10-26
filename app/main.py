@@ -54,6 +54,7 @@ async def on_qq_message(message: str, context: dict) -> str:
             scope_id=str(group_id),
             auto_participate=bool(context.get("auto_participate")),
             at_targets=context.get("at_targets") or [],
+            attachments=context.get("attachments") or [],
         )
 
     return await service.handle(
@@ -61,6 +62,7 @@ async def on_qq_message(message: str, context: dict) -> str:
         chat_id=f"user:{user_id}",
         scope_type="user",
         scope_id=user_id,
+        attachments=context.get("attachments") or [],
     )
 
 

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     platform_message_id TEXT,
+    attachments TEXT DEFAULT '',
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, id);
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS review_days (
 
 _MIGRATIONS = [
     ("messages", "platform_message_id", "TEXT"),
+    ("messages", "attachments", "TEXT DEFAULT ''"),
     ("memories", "weight", "REAL DEFAULT 1.0"),
 ]
 
@@ -106,6 +108,16 @@ def _now() -> str:
 
 def _today() -> str:
     return _now()[:10]
+
+
+def _load_attachments(raw: Any) -> list[dict[str, Any]]:
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, list) else []
+    except (TypeError, ValueError):
+        return []
 
 
 class MemoryStore:
@@ -137,11 +149,13 @@ class MemoryStore:
         role: str,
         content: str,
         platform_message_id: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> int:
+        payload = json.dumps(attachments, ensure_ascii=False) if attachments else ""
         cur = self._conn.execute(
-            "INSERT INTO messages(chat_id, role, content, platform_message_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (chat_id, role, content, platform_message_id, _now()),
+            "INSERT INTO messages(chat_id, role, content, platform_message_id, attachments, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (chat_id, role, content, platform_message_id, payload, _now()),
         )
         self._conn.commit()
         return int(cur.lastrowid)
@@ -248,10 +262,13 @@ class MemoryStore:
         rows = self._conn.execute(
             """
             SELECT m.id AS message_id, m.chat_id, m.content AS assistant,
-                   m.created_at,
+                   m.created_at, m.attachments,
                    (SELECT u.content FROM messages u
                      WHERE u.chat_id = m.chat_id AND u.role = 'user' AND u.id < m.id
                      ORDER BY u.id DESC LIMIT 1) AS user_message,
+                   (SELECT u.attachments FROM messages u
+                     WHERE u.chat_id = m.chat_id AND u.role = 'user' AND u.id < m.id
+                     ORDER BY u.id DESC LIMIT 1) AS user_attachments,
                    s.score, s.note
               FROM messages m
               LEFT JOIN reply_scores s ON s.message_id = m.id
@@ -288,6 +305,7 @@ class MemoryStore:
                 "date": day,
                 "chat_id": item["chat_id"],
                 "user": item["user_message"] or "",
+                "user_attachments": _load_attachments(item.get("user_attachments")),
                 "assistant": item["assistant"],
                 "score": item["score"],
                 "note": item["note"] or "",

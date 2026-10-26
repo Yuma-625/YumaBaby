@@ -57,6 +57,25 @@ class ParseMessageTest(unittest.TestCase):
         self.assertEqual(parsed.reply_to, "123")
         self.assertEqual(parsed.text, "你好")
 
+    def test_array_message_keeps_image_and_emoji(self):
+        data = {"message": [
+            {"type": "image", "data": {"url": "http://x/1.jpg", "file": "1.jpg", "summary": "[图片]"}},
+            {"type": "mface", "data": {"summary": "[微笑]"}},
+            {"type": "face", "data": {"id": "14"}},
+        ]}
+        parsed = parse_message(data)
+        self.assertEqual(len(parsed.attachments), 3)
+        self.assertEqual(parsed.attachments[0]["url"], "http://x/1.jpg")
+        self.assertIn("[图片]", parsed.text)
+        self.assertIn("[表情:微笑]", parsed.text)
+        self.assertIn("[表情]", parsed.text)
+
+    def test_string_message_keeps_image(self):
+        data = {"raw_message": "看这个[CQ:image,file=a.jpg,url=http://x/a.jpg]"}
+        parsed = parse_message(data)
+        self.assertEqual(parsed.attachments[0]["type"], "image")
+        self.assertIn("[图片]", parsed.text)
+
     def test_at_all_is_ignored(self):
         data = {"message": [{"type": "at", "data": {"qq": "all"}}]}
         parsed = parse_message(data)

@@ -114,6 +114,17 @@ class AgentServiceTest(unittest.TestCase):
         self.assertIn("功能列表", reply)
         self.assertEqual(llm.messages_seen, [])
 
+    def test_attachments_are_saved(self):
+        service, _ = self.make_service([answer("看到了")])
+        asyncio.run(service.handle(
+            "看图", chat_id="user:1", scope_type="user", scope_id="1",
+            attachments=[{"type": "image", "url": "http://x/1.jpg"}],
+        ))
+        row = self.store._conn.execute(
+            "SELECT attachments FROM messages WHERE role='user' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        self.assertIn("http://x/1.jpg", row["attachments"])
+
     def test_at_targets_are_added_to_prompt(self):
         service, llm = self.make_service([answer("打个招呼")])
         asyncio.run(service.handle(

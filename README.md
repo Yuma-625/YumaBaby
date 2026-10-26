@@ -205,6 +205,15 @@ python -m app.review.server
 - 召回分数 = `weight × exp(-年龄天数 / MEMORY_DECAY_DAYS)`，关键词命中再 ×1.8
 - 每天 04:30 清理：衰减后低于 0.05 且超过 180 天的删除，每个 scope 截到 `MEMORY_MAX_PER_SCOPE`
 
+### 图片与表情
+
+收到的图片/表情不会丢，但**模型看不到画面**（`deepseek-chat` 是纯文本模型）：
+
+- 图片 → 文本占位 `[图片]`，元数据（url/file/summary）存进 `messages.attachments`
+- 表情 → `[表情:微笑]`；系统表情只有 id 时记 `[表情]`
+- 标注导出的数据集会带上 `user_attachments`，方便以后做视觉标注
+- 要让机器人真正“看懂”，需要接视觉模型或 OCR（尚未实现）
+
 ### 群聊自动旁听
 
 在 `QQ_PARTICIPATION_GROUPS` 里的群：
