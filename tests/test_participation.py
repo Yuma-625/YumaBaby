@@ -98,6 +98,40 @@ class AutoParticipationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen[0][0], "100")
         self.assertEqual(seen[0][2], "随便说点什么")
 
+    async def test_reply_fetches_quoted_image(self):
+        seen = []
+
+        async def fake_api(action, params, timeout=10):
+            if action == "get_msg":
+                return {"status": "ok", "data": {"message": [
+                    {"type": "image", "data": {
+                        "summary": "[动画表情]", "url": "data:image/png;base64,AA",
+                    }},
+                ], "raw_message": ""}}
+            return {"status": "ok", "data": {}}
+
+        adapter = QQAdapter(
+            on_message=self.adapter.on_message,
+            on_group_seen=lambda *args: seen.append(args),
+        )
+        adapter._call_api = fake_api
+
+        await adapter._handle_group_message({
+            "group_id": "100", "user_id": "7",
+            "message": [
+                {"type": "reply", "data": {"id": "999"}},
+                {"type": "at", "data": {"qq": "999"}},
+                {"type": "text", "data": {"text": " 用这个"}},
+            ],
+        })
+        await asyncio.sleep(0.1)
+
+        self.assertTrue(seen)
+        text, attachments = seen[0][2], seen[0][4]
+        self.assertIn("引用", text)
+        self.assertIn("动画表情", text)
+        self.assertEqual(attachments[0]["type"], "image")
+
     async def test_resolve_at_names_and_cache(self):
         calls = []
 

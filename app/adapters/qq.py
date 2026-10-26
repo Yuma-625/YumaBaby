@@ -58,8 +58,8 @@ class ParsedMessage:
 
 
 def _image_placeholder(payload: dict) -> str:
-    summary = str(payload.get("summary", "")).strip()
-    if summary and summary not in ("[图片]", "[image]"):
+    summary = str(payload.get("summary", "")).strip().strip("[]")
+    if summary and summary not in ("图片", "image"):
         return f"[图片:{summary}]"
     return "[图片]"
 
@@ -214,6 +214,7 @@ class QQAdapter(BaseAdapter):
         self._pending: dict[str, _PendingChat] = {}
         self._last_auto_reply: dict[str, float] = {}
         self._at_name_cache: dict[str, str] = {}
+        self._quoted_cache: dict[str, ParsedMessage] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -347,6 +348,14 @@ class QQAdapter(BaseAdapter):
 
         parsed = parse_message(data)
         await self._resolve_at_names(group_id, parsed.at_targets)
+        if parsed.reply_to:
+            quoted = await self._fetch_quoted(parsed.reply_to)
+            if quoted:
+                quoted_text = quoted.text.strip()
+                if quoted_text:
+                    parsed.text = f"（引用：{quoted_text}）{parsed.text}".strip()
+                if quoted.attachments:
+                    parsed.attachments = quoted.attachments + parsed.attachments
         text = parsed.text
         sender = data.get("sender") or {}
         sender_name = str(sender.get("card") or sender.get("nickname") or "")
@@ -382,6 +391,30 @@ class QQAdapter(BaseAdapter):
                 reply_to=parsed.reply_to, auto=auto,
                 at_targets=parsed.at_targets, attachments=parsed.attachments,
             )
+
+    async def _fetch_quoted(self, message_id: str) -> ParsedMessage | None:
+        """引用回复时，把被引用消息的文字和图片也取回来。"""
+        cached = self._quoted_cache.get(message_id)
+        if cached is not None:
+            return cached
+        try:
+            response = await self._call_api(
+                "get_msg",
+                {"message_id": int(message_id) if message_id.isdigit() else message_id},
+                timeout=5,
+            )
+            data = response.get("data") or {}
+            if not data or "message" not in data:
+                return None
+            quoted = parse_message(data)
+        except Exception:
+            logger.debug(f"获取引用消息失败: {message_id}", exc_info=True)
+            return None
+
+        if len(self._quoted_cache) > 100:
+            self._quoted_cache.clear()
+        self._quoted_cache[message_id] = quoted
+        return quoted
 
     async def _resolve_at_names(self, group_id: str, targets: list[dict[str, str]]) -> None:
         """at 段没带昵称时，用群成员信息补齐；结果按 QQ 号缓存。"""
