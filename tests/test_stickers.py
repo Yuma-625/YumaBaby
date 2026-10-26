@@ -14,22 +14,24 @@ from app.stickers import (
     handle_sticker_send,
     is_send_command,
     is_sticker_command,
+    parse_send_count,
     parse_send_id,
+    parse_send_ids,
     save_sticker,
 )
 
 
-def png_bytes() -> bytes:
+def png_bytes(color=(255, 0, 0)) -> bytes:
     def chunk(tag, data):
         return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
 
     ihdr = struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0)
-    raw = b"\x00" + bytes([255, 0, 0]) * 2 + b"\x00" + bytes([0, 0, 255]) * 2
+    raw = b"\x00" + bytes(color) * 2 + b"\x00" + bytes(color) * 2
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
 
 
-def data_uri() -> str:
-    return "data:image/png;base64," + base64.b64encode(png_bytes()).decode()
+def data_uri(color=(255, 0, 0)) -> str:
+    return "data:image/png;base64," + base64.b64encode(png_bytes(color)).decode()
 
 
 class StickerCommandTest(unittest.TestCase):
@@ -138,6 +140,40 @@ class StickerCommandTest(unittest.TestCase):
             "发个表情", store=self.store, user_id="1293585554",
         ))
         self.assertTrue(reply.startswith("[CQ:image"))
+
+    def _save_three(self):
+        for color in ((255, 0, 0), (0, 255, 0), (0, 0, 255)):
+            asyncio.run(save_sticker(
+                self.store,
+                attachments=[{"type": "image", "url": data_uri(color)}],
+                group_id="100", user_id="1293585554",
+            ))
+
+    def test_natural_count_phrase(self):
+        self._save_three()
+        reply = asyncio.run(handle_sticker_send(
+            "发出来。3个表情包", store=self.store, user_id="1293585554",
+        ))
+        self.assertEqual(reply.count("[CQ:image"), 3)
+
+    def test_multiple_ids(self):
+        self._save_three()
+        reply = asyncio.run(handle_sticker_send(
+            "发1号还是2号还是3号表情", store=self.store, user_id="1293585554",
+        ))
+        self.assertEqual(reply.count("[CQ:image"), 3)
+        self.assertEqual(parse_send_ids("发1号还是2号还是3号表情"), [1, 2, 3])
+
+    def test_two_of_them(self):
+        self._save_three()
+        reply = asyncio.run(handle_sticker_send(
+            "两个表情包都发出来", store=self.store, user_id="1293585554",
+        ))
+        self.assertEqual(reply.count("[CQ:image"), 2)
+
+    def test_parse_count(self):
+        self.assertEqual(parse_send_count("发出来。3个表情包"), 3)
+        self.assertEqual(parse_send_count("两个表情包都发出来"), 2)
 
     def test_send_missing_id(self):
         asyncio.run(save_sticker(

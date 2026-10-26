@@ -153,22 +153,52 @@ async def handle_sticker_command(
 
 # --------------------------------------------------------------------- 发表情
 
-_SEND_ID_RE = re.compile(r"(?:发|来)(?:个|一下)?\s*(?:表情包?)?\s*#?(\d+)")
 _SEND_WORDS = ("发", "来")
+_CN_DIGITS = {
+    "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+}
+_COUNT_RE = re.compile(r"(\d+|[一二两三四五六七八九十])\s*(?:个|张)")
+_ID_RE = re.compile(r"(\d+)\s*号")
+_ALL_WORDS = ("全部", "所有", "都", "每张", "每个")
+MAX_SEND_IMAGES = 5
 
 
 def is_send_command(text: str) -> bool:
     value = (text or "").strip().strip(_PUNCT)
-    if "表情" not in value or len(value) > 30:
+    if "表情" not in value or len(value) > 40:
         return False
     if is_sticker_command(value):
         return False
     return any(word in value for word in _SEND_WORDS)
 
 
+def parse_send_ids(text: str) -> list[int]:
+    """显式指定的编号：`3号` / `发表情 3`。"""
+    value = text or ""
+    ids = [int(n) for n in _ID_RE.findall(value)]
+    if not ids:
+        for match in re.finditer(r"\d+", value):
+            number = match.group(0)
+            after = value[match.end():match.end() + 2]
+            if not after.lstrip().startswith(("个", "张")):
+                ids.append(int(number))
+    return [n for n in ids if 1 <= n <= 999]
+
+
 def parse_send_id(text: str) -> int | None:
-    match = _SEND_ID_RE.search(text or "")
-    return int(match.group(1)) if match else None
+    ids = parse_send_ids(text)
+    return ids[0] if ids else None
+
+
+def parse_send_count(text: str) -> int | None:
+    match = _COUNT_RE.search(text or "")
+    if not match:
+        return None
+    token = match.group(1)
+    if token.isdigit():
+        return int(token)
+    return _CN_DIGITS.get(token)
 
 
 def _build_image_cq(sticker: dict) -> str | None:
@@ -185,27 +215,43 @@ async def handle_sticker_send(
     store: MemoryStore,
     user_id: str,
 ) -> str | None:
-    """管理员发表情：`发 3 号表情` / `发表情 3` / `发个表情`（随机）。"""
+    """管理员发表情：`发 3 号表情` / `发出来 3 个表情包` / `都发出来` / 随机。"""
     if user_id != settings.QQ_PERSONA_ADMIN:
         return None
     if not is_send_command(text):
         return None
 
-    if store.count_stickers() == 0:
+    total = store.count_stickers()
+    if total == 0:
         return "表情库还是空的，先说「存这个表情包」存一个。"
 
-    sticker_id = parse_send_id(text)
-    if sticker_id is not None:
-        sticker = store.get_sticker(sticker_id)
-        if sticker is None:
-            return f"没有 #{sticker_id} 这个表情，当前一共 {store.count_stickers()} 个。"
-    else:
-        candidates = store.list_stickers(limit=200)
-        sticker = random.choice(candidates)
+    all_stickers = sorted(store.list_stickers(limit=200), key=lambda s: s["id"])
+    ids = parse_send_ids(text)
+    count = parse_send_count(text)
+    wants_all = any(word in text for word in _ALL_WORDS)
 
-    cq = _build_image_cq(sticker)
-    if cq is None:
-        return "这个表情文件不在了或太大，发不出来。"
-    logger.info(f"发送表情 #{sticker['id']}")
-    return cq
+    if ids:
+        missing = [n for n in ids if store.get_sticker(n) is None]
+        chosen = [store.get_sticker(n) for n in ids if store.get_sticker(n) is not None]
+        if not chosen:
+            return f"没有 {'、'.join(f'#{n}' for n in missing)} 这个表情，当前一共 {total} 个。"
+        if missing:
+            logger.info(f"跳过的表情编号: {missing}")
+    elif count:
+        chosen = all_stickers[:max(1, count)]
+    elif wants_all:
+        chosen = all_stickers
+    else:
+        chosen = [random.choice(all_stickers)]
+
+    chosen = chosen[:MAX_SEND_IMAGES]
+    messages = []
+    for sticker in chosen:
+        cq = _build_image_cq(sticker)
+        if cq:
+            messages.append(cq)
+            logger.info(f"发送表情 #{sticker['id']}")
+    if not messages:
+        return "这些表情文件不在了或太大，发不出来。"
+    return "".join(messages)
 
