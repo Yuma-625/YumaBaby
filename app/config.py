@@ -73,9 +73,14 @@ class Settings:
     PARTICIPATION_COOLDOWN_SECONDS: int = _env_int("PARTICIPATION_COOLDOWN_SECONDS", 120)
     # 群聊短期上下文：群里最近消息的滚动缓冲（不进数据集）
     GROUP_CONTEXT_ENABLED: bool = _env_bool("GROUP_CONTEXT_ENABLED", True)
-    GROUP_CONTEXT_MAX: int = _env_int("GROUP_CONTEXT_MAX", 50)
+    GROUP_CONTEXT_MAX: int = _env_int("GROUP_CONTEXT_MAX", 120)
     GROUP_CONTEXT_MINUTES: int = _env_int("GROUP_CONTEXT_MINUTES", 30)
     GROUP_CONTEXT_INJECT: int = _env_int("GROUP_CONTEXT_INJECT", 10)
+    # 群聊总结
+    SUMMARY_ADMIN_ONLY: bool = _env_bool("SUMMARY_ADMIN_ONLY", True)
+    SUMMARY_DEFAULT_COUNT: int = _env_int("SUMMARY_DEFAULT_COUNT", 50)
+    SUMMARY_MAX_COUNT: int = _env_int("SUMMARY_MAX_COUNT", 120)
+    SUMMARY_COOLDOWN_SECONDS: int = _env_int("SUMMARY_COOLDOWN_SECONDS", 120)
     # 表情库
     STICKERS_DIR: str = os.getenv("STICKERS_DIR", str(BASE_DIR / "data" / "stickers"))
     STICKER_MAX_BYTES: int = _env_int("STICKER_MAX_BYTES", 5_000_000)

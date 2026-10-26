@@ -65,6 +65,15 @@ async def on_qq_message(message: str, context: dict) -> str:
         if sticker_send is not None:
             return sticker_send
 
+    if store is not None and group_id:
+        from app.summary import handle_summary_command
+
+        summary_reply = await handle_summary_command(
+            message, store=store, group_id=group_id, user_id=user_id
+        )
+        if summary_reply is not None:
+            return summary_reply
+
     if group_id:
         return await service.handle(
             message,
