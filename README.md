@@ -208,6 +208,7 @@ python -m app.review.server
 ### 图片与表情
 
 - 图片会下载、转成 base64 后作为 `image_url` 内容段发给模型（`deepseek-chat` 本身支持视觉）
+- 表情包（`mface`/`bface`/`marketface`）若带 PNG/JPEG/WebP 链接，也会一并送进视觉；GIF 暂时跳过，只保留文字占位
 - 只发送**当前这一条消息**里的图片，历史里的图不重复发送，避免每轮重复计费
 - 每轮最多 `VISION_MAX_IMAGES` 张、单张不超过 `VISION_MAX_BYTES`，超限跳过
 - 图片下载走 SSRF 校验（拒绝私网/回环地址）

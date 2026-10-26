@@ -70,6 +70,21 @@ class ParseMessageTest(unittest.TestCase):
         self.assertIn("[表情:微笑]", parsed.text)
         self.assertIn("[表情]", parsed.text)
 
+    def test_bface_is_kept(self):
+        data = {"message": [
+            {"type": "text", "data": {"text": "用这个"}},
+            {"type": "bface", "data": {"summary": "[奶龙]", "url": "http://x/e.gif"}},
+        ]}
+        parsed = parse_message(data)
+        self.assertEqual(parsed.attachments[0]["type"], "bface")
+        self.assertIn("[表情:奶龙]", parsed.text)
+
+    def test_unknown_segment_is_logged_and_kept(self):
+        data = {"message": [{"type": "json", "data": {"summary": "卡片"}}]}
+        parsed = parse_message(data)
+        self.assertEqual(parsed.attachments[0]["type"], "json")
+        self.assertIn("[未知消息]", parsed.text)
+
     def test_string_message_keeps_image(self):
         data = {"raw_message": "看这个[CQ:image,file=a.jpg,url=http://x/a.jpg]"}
         parsed = parse_message(data)

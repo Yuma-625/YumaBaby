@@ -15,6 +15,9 @@ from app.tools.builtin import check_url
 
 logger = logging.getLogger(__name__)
 
+_IMAGE_TYPES = {"image", "mface", "bface", "marketface"}
+_ALLOWED_CTYPES = {"image/png", "image/jpeg", "image/webp"}
+
 
 async def attachment_to_part(attachment: dict) -> dict | None:
     url = str(attachment.get("url") or "").strip()
@@ -22,6 +25,10 @@ async def attachment_to_part(attachment: dict) -> dict | None:
         return None
 
     if url.startswith("data:image/"):
+        ctype = url[5:].split(";")[0].lower()
+        if ctype not in _ALLOWED_CTYPES:
+            logger.debug(f"跳过不支持的图片类型: {ctype}")
+            return None
         return {"type": "image_url", "image_url": {"url": url}}
 
     reason = check_url(url)
@@ -36,8 +43,8 @@ async def attachment_to_part(attachment: dict) -> dict | None:
                     logger.warning(f"图片下载失败 HTTP {resp.status_code}")
                     return None
                 ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
-                if not ctype.startswith("image/"):
-                    logger.warning(f"图片类型不支持: {ctype}")
+                if ctype not in _ALLOWED_CTYPES:
+                    logger.debug(f"跳过不支持的图片类型: {ctype}")
                     return None
 
                 chunks: list[bytes] = []
@@ -69,7 +76,7 @@ async def build_image_parts(attachments: list[dict] | None,
     for attachment in attachments:
         if len(parts) >= limit:
             break
-        if attachment.get("type") != "image":
+        if attachment.get("type") not in _IMAGE_TYPES:
             continue
         part = await attachment_to_part(attachment)
         if part:

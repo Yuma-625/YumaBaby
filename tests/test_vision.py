@@ -24,6 +24,18 @@ class VisionTest(unittest.TestCase):
     def test_empty_url_is_skipped(self):
         self.assertIsNone(asyncio.run(attachment_to_part({"type": "image", "url": ""})))
 
+    def test_mface_with_png_is_used_for_vision(self):
+        part = asyncio.run(attachment_to_part({
+            "type": "mface", "url": "data:image/png;base64,AAAA",
+        }))
+        self.assertIsNotNone(part)
+
+    def test_gif_is_skipped(self):
+        part = asyncio.run(attachment_to_part({
+            "type": "mface", "url": "data:image/gif;base64,AAAA",
+        }))
+        self.assertIsNone(part)
+
     def test_limit_and_non_image_filtered(self):
         attachments = [
             {"type": "mface", "summary": "[微笑]"},

@@ -110,16 +110,27 @@ def parse_message(data: dict) -> ParsedMessage:
                     "summary": str(payload.get("summary", "")),
                 })
                 parts.append(" " + _image_placeholder(payload) + " ")
-            elif seg_type == "mface":
+            elif seg_type in ("mface", "bface", "marketface"):
                 attachments.append({
-                    "type": "mface",
-                    "url": str(payload.get("url", "")),
-                    "summary": str(payload.get("summary", "")),
+                    "type": seg_type,
+                    "url": str(payload.get("url", "") or payload.get("emoji_url", "")),
+                    "summary": str(payload.get("summary", "") or payload.get("face_name", "")),
                 })
                 parts.append(" " + _emoji_placeholder(payload) + " ")
             elif seg_type == "face":
                 attachments.append({"type": "face", "summary": str(payload.get("id", ""))})
                 parts.append(" [表情] ")
+            else:
+                # 未知段保留类型和摘要，既方便排查，也不至于把内容整个丢掉
+                logger.warning(
+                    "未识别的消息段类型: %s payload=%s",
+                    seg_type, str(payload)[:160],
+                )
+                attachments.append({
+                    "type": str(seg_type or "unknown"),
+                    "raw": str(payload)[:200],
+                })
+                parts.append(" [未知消息] ")
         text = " ".join("".join(parts).split())
     else:
         raw = data.get("raw_message", "") or ""
@@ -127,7 +138,7 @@ def parse_message(data: dict) -> ParsedMessage:
         for qq in re.findall(r"\[CQ:at,qq=(\d+)", raw):
             targets.append({"qq": qq, "name": ""})
         reply_to = extract_reply_id(raw)
-        for match in re.finditer(r"\[CQ:(image|mface|face)([^\]]*)\]", raw):
+        for match in re.finditer(r"\[CQ:(image|mface|bface|marketface|face)([^\]]*)\]", raw):
             seg_type = match.group(1)
             params = dict(re.findall(r"(\w+)=([^,\]]+)", match.group(2)))
             if seg_type == "image":
@@ -138,9 +149,9 @@ def parse_message(data: dict) -> ParsedMessage:
                     "summary": params.get("summary", ""),
                 })
                 text = f"{text} [图片]".strip()
-            elif seg_type == "mface":
+            elif seg_type in ("mface", "bface", "marketface"):
                 attachments.append({
-                    "type": "mface",
+                    "type": seg_type,
                     "url": params.get("url", ""),
                     "summary": params.get("summary", ""),
                 })
