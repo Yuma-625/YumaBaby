@@ -62,10 +62,32 @@ class AgentService:
 
         history = self.store.recent_messages(chat_id, settings.AGENT_HISTORY_TURNS * 2)
         memories = []
+        query_vector = None
         if settings.AGENT_MEMORY_LIMIT > 0:
-            memories = self.store.recall(
-                scope_type, scope_id, text, limit=settings.AGENT_MEMORY_LIMIT
-            )
+            try:
+                if settings.EMBEDDING_ENABLED:
+                    from app.memory.embeddings import embed_query
+                    query_vector = await embed_query(text)
+                if settings.MEMORY_HIERARCHY_ENABLED or query_vector:
+                    memories = self.store.recall_hierarchical(
+                        scope_type, scope_id, text,
+                        limit=settings.AGENT_MEMORY_LIMIT,
+                        topics_limit=settings.AGENT_MEMORY_TOPICS,
+                        query_vector=query_vector,
+                        model=settings.EMBEDDING_MODEL if query_vector else None,
+                        use_topics=settings.MEMORY_HIERARCHY_ENABLED,
+                    )
+                else:
+                    memories = self.store.recall(
+                        scope_type, scope_id, text,
+                        limit=settings.AGENT_MEMORY_LIMIT,
+                    )
+            except Exception:
+                logger.exception("记忆召回失败，回退关键词")
+                memories = self.store.recall(
+                    scope_type, scope_id, text,
+                    limit=settings.AGENT_MEMORY_LIMIT,
+                )
 
         system_prompt = build_system_prompt(self.persona.get_system_prompt(), memories)
 
@@ -149,6 +171,11 @@ class AgentService:
             result.stopped, result.steps, len(result.trace), chat_id,
         )
         self._save(chat_id, text, reply, attachments)
+        try:
+            from app.memory.extractor import maybe_schedule
+            maybe_schedule(self.store, scope_type, scope_id, chat_id)
+        except Exception:
+            logger.exception("调度记忆提炼失败")
         self._log_events(chat_id, result)
         self._maybe_learn(text, reply)
         return reply

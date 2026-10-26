@@ -8,6 +8,7 @@
 - ``reply_feedback`` 对某条回复的好评/差评
 """
 
+import hashlib
 import json
 import logging
 import math
@@ -19,6 +20,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.config import settings
+from app.memory.vectors import cosine, similarity_score, unpack_vector
 
 logger = logging.getLogger(__name__)
 
@@ -120,12 +122,47 @@ CREATE TABLE IF NOT EXISTS group_reports (
     created_at TEXT NOT NULL,
     UNIQUE(group_id, day)
 );
+
+CREATE TABLE IF NOT EXISTS memory_topics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope_type TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    keywords TEXT DEFAULT '',
+    summary TEXT DEFAULT '',
+    summary_at TEXT,
+    weight REAL DEFAULT 1.0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(scope_type, scope_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS memory_vectors (
+    owner_type TEXT NOT NULL,
+    owner_id INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    PRIMARY KEY(owner_type, owner_id, model)
+);
+
+CREATE TABLE IF NOT EXISTS memory_extract_cursors (
+    scope_type TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    last_message_id INTEGER DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(scope_type, scope_id)
+);
 """
 
 _MIGRATIONS = [
     ("messages", "platform_message_id", "TEXT"),
     ("messages", "attachments", "TEXT DEFAULT ''"),
     ("memories", "weight", "REAL DEFAULT 1.0"),
+    ("memories", "memory_hash", "TEXT"),
+    ("memories", "importance", "REAL DEFAULT 0.6"),
+    ("memories", "source_message_ids", "TEXT DEFAULT '[]'"),
+    ("memories", "topic_id", "INTEGER"),
     ("stickers", "name", "TEXT DEFAULT ''"),
 ]
 
@@ -150,6 +187,19 @@ def _load_attachments(raw: Any) -> list[dict[str, Any]]:
         return value if isinstance(value, list) else []
     except (TypeError, ValueError):
         return []
+
+
+def _merge_keywords(old: str, new: str) -> str:
+    items: list[str] = []
+    for chunk in (old or "").replace("，", ",").split(","):
+        chunk = chunk.strip()
+        if chunk and chunk not in items:
+            items.append(chunk)
+    for chunk in (new or "").replace("，", ",").split(","):
+        chunk = chunk.strip()
+        if chunk and chunk not in items:
+            items.append(chunk)
+    return ",".join(items[:20])
 
 
 class MemoryStore:
@@ -371,27 +421,263 @@ class MemoryStore:
         *,
         source: str = "",
         confidence: float = 0.8,
+        importance: float | None = None,
+        source_message_ids: list[int] | None = None,
+        topic_id: int | None = None,
     ) -> int:
-        text = (text or "").strip()
+        text = " ".join((text or "").split())
         if not text:
             raise ValueError("记忆内容不能为空")
 
+        digest = hashlib.sha1(text.encode("utf-8")).hexdigest()
         existing = self._conn.execute(
-            "SELECT id FROM memories WHERE scope_type=? AND scope_id=? "
-            "AND text=? AND status='active'",
-            (scope_type, scope_id, text),
+            "SELECT id, importance FROM memories WHERE scope_type=? AND scope_id=? "
+            "AND (text=? OR memory_hash=?) AND status='active'",
+            (scope_type, scope_id, text, digest),
         ).fetchone()
         if existing:
+            if importance is not None and importance > float(existing["importance"] or 0):
+                self._conn.execute(
+                    "UPDATE memories SET importance=? WHERE id=?",
+                    (float(importance), existing["id"]),
+                )
+            if topic_id is not None:
+                self._conn.execute(
+                    "UPDATE memories SET topic_id=? WHERE id=?", (topic_id, existing["id"])
+                )
+            self._conn.commit()
             return int(existing["id"])
 
+        sources = json.dumps(source_message_ids or [], ensure_ascii=False)
         cur = self._conn.execute(
             "INSERT INTO memories(scope_type, scope_id, text, source, confidence, "
-            "status, weight, created_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
-            (scope_type, scope_id, text, source, confidence,
-             1.5 if source == "tool" else 1.0, _now()),
+            "status, weight, importance, memory_hash, source_message_ids, topic_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)",
+            (
+                scope_type, scope_id, text, source, confidence,
+                1.5 if source == "tool" else 1.0,
+                float(importance if importance is not None else 0.6),
+                digest, sources, topic_id, _now(),
+            ),
         )
         self._conn.commit()
         return int(cur.lastrowid)
+
+    def list_memories(self, scope_type: str, scope_id: str,
+                      limit: int = 500) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT id, text, source, confidence, importance, created_at, "
+            "use_count, weight, topic_id, source_message_ids FROM memories "
+            "WHERE scope_type=? AND scope_id=? AND status='active' "
+            "ORDER BY id DESC LIMIT ?",
+            (scope_type, scope_id, max(1, limit)),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def messages_since(self, chat_id: str, last_id: int,
+                       limit: int = 40) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT id, role, content, created_at FROM messages "
+            "WHERE chat_id=? AND id>? ORDER BY id ASC LIMIT ?",
+            (chat_id, int(last_id), max(1, limit)),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def pending_message_count(self, chat_id: str, last_id: int) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM messages WHERE chat_id=? AND id>?",
+            (chat_id, int(last_id)),
+        ).fetchone()
+        return int(row["n"])
+
+    def recent_chat_ids(self, limit: int = 30) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT chat_id, MAX(id) AS last_id FROM messages "
+            "GROUP BY chat_id ORDER BY last_id DESC LIMIT ?",
+            (max(1, limit),),
+        ).fetchall()
+        return [row["chat_id"] for row in rows]
+
+    def get_extract_cursor(self, scope_type: str, scope_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT last_message_id FROM memory_extract_cursors "
+            "WHERE scope_type=? AND scope_id=?",
+            (scope_type, scope_id),
+        ).fetchone()
+        return int(row["last_message_id"]) if row else 0
+
+    def set_extract_cursor(self, scope_type: str, scope_id: str, last_message_id: int) -> None:
+        self._conn.execute(
+            "INSERT INTO memory_extract_cursors(scope_type, scope_id, last_message_id, updated_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(scope_type, scope_id) DO UPDATE SET "
+            "last_message_id=excluded.last_message_id, updated_at=excluded.updated_at",
+            (scope_type, scope_id, int(last_message_id), _now()),
+        )
+        self._conn.commit()
+
+    # ------------------------------------------------------------------ 主题
+
+    def upsert_topic(self, scope_type: str, scope_id: str, name: str,
+                     keywords: str = "", summary: str = "") -> int:
+        name = " ".join((name or "").split())[:20]
+        if not name:
+            raise ValueError("主题名不能为空")
+        row = self._conn.execute(
+            "SELECT id, keywords FROM memory_topics WHERE scope_type=? AND scope_id=? AND name=?",
+            (scope_type, scope_id, name),
+        ).fetchone()
+        if row:
+            merged = _merge_keywords(row["keywords"] or "", keywords)
+            self._conn.execute(
+                "UPDATE memory_topics SET keywords=?, updated_at=? WHERE id=?",
+                (merged, _now(), row["id"]),
+            )
+            self._conn.commit()
+            return int(row["id"])
+
+        cur = self._conn.execute(
+            "INSERT INTO memory_topics(scope_type, scope_id, name, keywords, summary, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (scope_type, scope_id, name, keywords.strip(), summary.strip(), _now(), _now()),
+        )
+        self._conn.commit()
+        return int(cur.lastrowid)
+
+    def get_topic(self, topic_id: int) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM memory_topics WHERE id=?", (topic_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_memory(self, memory_id: int) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM memories WHERE id=?", (memory_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_topic_by_name(self, scope_type: str, scope_id: str,
+                          name: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM memory_topics WHERE scope_type=? AND scope_id=? AND name=?",
+            (scope_type, scope_id, name),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_topics(self, scope_type: str, scope_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM memory_topics WHERE scope_type=? AND scope_id=? "
+            "ORDER BY weight DESC, id ASC",
+            (scope_type, scope_id),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_topic_scopes(self) -> list[tuple[str, str]]:
+        rows = self._conn.execute(
+            "SELECT DISTINCT scope_type, scope_id FROM memory_topics"
+        ).fetchall()
+        return [(row["scope_type"], row["scope_id"]) for row in rows]
+
+    def list_memory_scopes(self) -> list[tuple[str, str]]:
+        rows = self._conn.execute(
+            "SELECT DISTINCT scope_type, scope_id FROM memories WHERE status='active'"
+        ).fetchall()
+        return [(row["scope_type"], row["scope_id"]) for row in rows]
+
+    def count_topics(self, scope_type: str, scope_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM memory_topics WHERE scope_type=? AND scope_id=?",
+            (scope_type, scope_id),
+        ).fetchone()
+        return int(row["n"])
+
+    def count_all_topics(self) -> int:
+        row = self._conn.execute("SELECT COUNT(*) AS n FROM memory_topics").fetchone()
+        return int(row["n"])
+
+    def count_topic_memories(self, topic_id: int) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM memories WHERE topic_id=? AND status='active'",
+            (topic_id,),
+        ).fetchone()
+        return int(row["n"])
+
+    def update_topic_summary(self, topic_id: int, summary: str) -> None:
+        self._conn.execute(
+            "UPDATE memory_topics SET summary=?, summary_at=?, updated_at=? WHERE id=?",
+            (summary.strip(), _now(), _now(), topic_id),
+        )
+        self._conn.commit()
+
+    def attach_memory_topic(self, memory_id: int, topic_id: int | None) -> None:
+        self._conn.execute(
+            "UPDATE memories SET topic_id=? WHERE id=?", (topic_id, memory_id)
+        )
+        self._conn.commit()
+
+    def bump_memory_importance(self, memory_id: int, importance: float) -> None:
+        self._conn.execute(
+            "UPDATE memories SET importance=MAX(importance, ?) WHERE id=?",
+            (float(importance), memory_id),
+        )
+        self._conn.commit()
+
+    def topic_memories(self, topic_id: int, limit: int = 40) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT id, text, importance FROM memories WHERE topic_id=? AND status='active' "
+            "ORDER BY importance DESC, id DESC LIMIT ?",
+            (topic_id, max(1, limit)),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_empty_topics(self) -> int:
+        cur = self._conn.execute(
+            "DELETE FROM memory_topics WHERE id NOT IN "
+            "(SELECT DISTINCT topic_id FROM memories WHERE topic_id IS NOT NULL AND status='active')"
+        )
+        self._conn.commit()
+        return cur.rowcount
+
+    # ------------------------------------------------------------------ 向量
+
+    def set_vector(self, owner_type: str, owner_id: int, model: str,
+                   vector: bytes, dim: int) -> None:
+        self._conn.execute(
+            "INSERT INTO memory_vectors(owner_type, owner_id, model, dim, vector) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_type, owner_id, model) "
+            "DO UPDATE SET dim=excluded.dim, vector=excluded.vector",
+            (owner_type, int(owner_id), model, int(dim), vector),
+        )
+        self._conn.commit()
+
+    def get_vectors(self, owner_type: str, model: str,
+                    ids: list[int]) -> dict[int, bytes]:
+        if not ids:
+            return {}
+        placeholders = ",".join("?" for _ in ids)
+        rows = self._conn.execute(
+            f"SELECT owner_id, vector FROM memory_vectors WHERE owner_type=? "
+            f"AND model=? AND owner_id IN ({placeholders})",
+            (owner_type, model, *ids),
+        ).fetchall()
+        return {int(row["owner_id"]): row["vector"] for row in rows}
+
+    def memory_ids_missing_vectors(self, model: str, limit: int = 100) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT m.id FROM memories m WHERE m.status='active' AND NOT EXISTS "
+            "(SELECT 1 FROM memory_vectors v WHERE v.owner_type='memory' "
+            "AND v.owner_id=m.id AND v.model=?) ORDER BY m.id DESC LIMIT ?",
+            (model, max(1, limit)),
+        ).fetchall()
+        return [int(row["id"]) for row in rows]
+
+    def topic_ids_missing_vectors(self, model: str, limit: int = 100) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT t.id FROM memory_topics t WHERE NOT EXISTS "
+            "(SELECT 1 FROM memory_vectors v WHERE v.owner_type='topic' "
+            "AND v.owner_id=t.id AND v.model=?) ORDER BY t.id DESC LIMIT ?",
+            (model, max(1, limit)),
+        ).fetchall()
+        return [int(row["id"]) for row in rows]
 
     def recall(
         self,
@@ -447,6 +733,135 @@ class MemoryStore:
             (_now(), *ids),
         )
         self._conn.commit()
+        return result
+
+    def recall_hierarchical(
+        self,
+        scope_type: str,
+        scope_id: str,
+        query: str = "",
+        *,
+        limit: int = 5,
+        topics_limit: int = 3,
+        query_vector: list[float] | None = None,
+        model: str | None = None,
+        use_topics: bool = True,
+    ) -> list[dict[str, Any]]:
+        """扁平向量召回 + 主题软加权；主题只加分，不做门禁。
+
+        query_vector/model 为空时退化为关键词 + 时间衰减（与旧 recall 接近）。
+        """
+        if limit <= 0:
+            return []
+        limit = min(limit, 50)
+
+        rows = self._conn.execute(
+            "SELECT id, text, source, created_at, use_count, weight, importance, topic_id "
+            "FROM memories WHERE scope_type=? AND scope_id=? AND status='active' "
+            "ORDER BY id DESC LIMIT 500",
+            (scope_type, scope_id),
+        ).fetchall()
+        if not rows:
+            return []
+
+        try:
+            tz = ZoneInfo(settings.TIMEZONE)
+        except Exception:
+            tz = ZoneInfo("UTC")
+        now = datetime.now(tz)
+        needle = (query or "").strip().lower()
+
+        topics = {}
+        if use_topics and topics_limit > 0:
+            topics = {t["id"]: t for t in self.list_topics(scope_type, scope_id)}
+
+        memory_ids = [int(r["id"]) for r in rows]
+        mem_vectors = (
+            self.get_vectors("memory", model, memory_ids)
+            if query_vector and model else {}
+        )
+        topic_vectors = (
+            self.get_vectors("topic", model, list(topics))
+            if query_vector and model and topics else {}
+        )
+
+        topic_scores: dict[int, float] = {}
+        for topic_id, topic in topics.items():
+            score = 0.0
+            haystack = " ".join(
+                [topic.get("name") or "", topic.get("keywords") or "",
+                 topic.get("summary") or ""]
+            ).lower()
+            if needle and needle in haystack:
+                score = max(score, 1.0)
+            blob = topic_vectors.get(topic_id)
+            if blob is not None:
+                score = max(
+                    score,
+                    similarity_score(cosine(query_vector, unpack_vector(blob))),
+                )
+            if score > 0:
+                topic_scores[topic_id] = score
+
+        top_topics = {
+            tid for tid, _ in sorted(
+                topic_scores.items(), key=lambda kv: (-kv[1], kv[0])
+            )[:topics_limit]
+        }
+
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for row in rows:
+            item = dict(row)
+            try:
+                created = datetime.fromisoformat(item["created_at"])
+                age_days = max(0.0, (now - created).total_seconds() / 86400)
+            except (TypeError, ValueError):
+                age_days = 0.0
+            decay = math.exp(-age_days / max(1, settings.MEMORY_DECAY_DAYS))
+            importance = max(0.0, min(1.0, float(item.get("importance") or 0.6)))
+            text = (item.get("text") or "").lower()
+            keyword_hit = bool(needle and needle in text)
+
+            blob = mem_vectors.get(int(item["id"]))
+            if blob is not None:
+                sim = similarity_score(cosine(query_vector, unpack_vector(blob)))
+                score = 0.65 * sim + 0.25 * decay + 0.10 * importance
+                if keyword_hit:
+                    score += 0.05
+            else:
+                score = float(item.get("weight") or 1.0) * decay
+                score *= 1.8 if keyword_hit else 1.0
+                score *= 0.5 + 0.5 * importance
+
+            topic = topics.get(item.get("topic_id"))
+            if topic is not None and topic["id"] in top_topics:
+                score += 0.10
+                haystack = " ".join(
+                    [topic.get("name") or "", topic.get("keywords") or ""]
+                ).lower()
+                if needle and needle in haystack:
+                    score += 0.05
+                item["topic_name"] = topic.get("name") or ""
+                item["topic_summary"] = topic.get("summary") or ""
+            else:
+                item["topic_name"] = topic.get("name") if topic else ""
+                item["topic_summary"] = topic.get("summary") if topic else ""
+
+            item["score"] = round(score, 6)
+            scored.append((score, item))
+
+        scored.sort(key=lambda pair: (-pair[0], -pair[1]["id"]))
+        result = [item for _, item in scored[:limit]]
+
+        ids = [r["id"] for r in result]
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            self._conn.execute(
+                f"UPDATE memories SET last_used_at=?, use_count=use_count+1 "
+                f"WHERE id IN ({placeholders})",
+                (_now(), *ids),
+            )
+            self._conn.commit()
         return result
 
     def forget(self, scope_type: str, scope_id: str, keyword: str = "") -> int:

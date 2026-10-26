@@ -1,7 +1,4 @@
-"""上下文组装：人设 + 记忆 + 最近对话。
-
-刻意保持简单：只做截断和格式化，不做检索排序（检索在 MemoryStore 里）。
-"""
+"""人设 + 长期记忆 + 最近对话的上下文组装。"""
 
 from typing import Any
 
@@ -13,9 +10,31 @@ def build_system_prompt(base: str, memories: list[dict[str, Any]] | None = None)
     if not memories:
         return base
 
-    lines = [base, "", MEMORY_HEADER]
+    lines: list[str] = []
+    groups: dict[str, dict[str, Any]] = {}
+    ungrouped: list[str] = []
+
     for item in memories:
         text = " ".join(str(item.get("text", "")).split())[:200]
-        if text:
-            lines.append(f"- {text}")
-    return "\n".join(lines)
+        if not text:
+            continue
+        topic = (item.get("topic_name") or "").strip()
+        if not topic:
+            ungrouped.append(f"- {text}")
+            continue
+        group = groups.setdefault(topic, {"summary": "", "facts": []})
+        if not group["summary"] and item.get("topic_summary"):
+            group["summary"] = str(item["topic_summary"]).strip()[:200]
+        group["facts"].append(f"- {text}")
+
+    for topic, group in groups.items():
+        head = f"[{topic}]"
+        if group["summary"]:
+            head += f" 摘要：{group['summary']}"
+        lines.append(head)
+        lines.extend(group["facts"])
+
+    lines.extend(ungrouped)
+
+    prefix = f"{base}\n\n{MEMORY_HEADER}"
+    return prefix + "\n" + "\n".join(lines)[:1000]

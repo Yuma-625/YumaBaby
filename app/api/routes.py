@@ -64,9 +64,56 @@ async def health(request: Request):
         "memory": {
             "enabled": shared.memory_store is not None,
             "memories": shared.memory_store.count_memories() if shared.memory_store else 0,
+            "topics": shared.memory_store.count_all_topics() if shared.memory_store else 0,
+            "embeddings_enabled": settings.EMBEDDING_ENABLED,
+            "hierarchy_enabled": settings.MEMORY_HIERARCHY_ENABLED,
         },
         "usage_today": usage.today_summary(),
         "started_at": started_at.isoformat() if started_at else None,
+    }
+
+
+@router.get("/memory/topics", dependencies=[Depends(require_api_token)])
+async def memory_topics(scope_type: str, scope_id: str):
+    """某个 scope 下的主题列表。"""
+    store = shared.memory_store
+    if store is None:
+        raise HTTPException(status_code=503, detail="记忆库未初始化")
+    if scope_type not in ("user", "group"):
+        raise HTTPException(status_code=422, detail="scope_type 只能是 user 或 group")
+    topics = store.list_topics(scope_type, scope_id)
+    for topic in topics:
+        topic["facts"] = store.count_topic_memories(int(topic["id"]))
+    return {"scope_type": scope_type, "scope_id": scope_id, "topics": topics}
+
+
+@router.get("/memory/topics/{topic_id}", dependencies=[Depends(require_api_token)])
+async def memory_topic_detail(topic_id: int):
+    store = shared.memory_store
+    if store is None:
+        raise HTTPException(status_code=503, detail="记忆库未初始化")
+    topic = store.get_topic(topic_id)
+    if topic is None:
+        raise HTTPException(status_code=404, detail="主题不存在")
+    return {"topic": topic, "memories": store.topic_memories(topic_id, limit=100)}
+
+
+@router.post("/memory/extract", dependencies=[Depends(require_api_token)])
+async def memory_extract(scope_type: str, scope_id: str):
+    """手动触发一次记忆提炼（管理员排障用）。"""
+    store = shared.memory_store
+    if store is None:
+        raise HTTPException(status_code=503, detail="记忆库未初始化")
+    if scope_type not in ("user", "group"):
+        raise HTTPException(status_code=422, detail="scope_type 只能是 user 或 group")
+    from app.memory.extractor import extract_scope
+
+    added = await extract_scope(store, scope_type, scope_id, force=True)
+    return {
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "added": added,
+        "cursor": store.get_extract_cursor(scope_type, scope_id),
     }
 
 

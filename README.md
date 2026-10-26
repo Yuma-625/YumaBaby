@@ -46,7 +46,7 @@ app/
 │  ├─ registry.py   工具注册表（JSON Schema + 参数校验 + 超时 + 统一错误包）
 │  └─ builtin.py    时间 / 网页抓取 / Bing 搜索 / 记忆读写
 ├─ memory/
-│  └─ store.py      SQLite：对话 / 记忆 / 行为日志 / 打分 / 数据集
+│  └─ store.py      SQLite：对话 / 记忆 / 主题 / 向量 / 行为日志 / 打分 / 数据集
 ├─ review/
 │  ├─ server.py     本地标注台 API（0–10 分、导出 JSONL）
 │  └─ page.py       标注页面（单文件 HTML）
@@ -205,7 +205,32 @@ python -m app.review.server
 
 - 每条记忆带 `weight`：工具写入（用户明确要求记住）1.5，普通 1.0
 - 召回分数 = `weight × exp(-年龄天数 / MEMORY_DECAY_DAYS)`，关键词命中再 ×1.8
+- 开启主题后，主题只做加分与分组（`+0.10`），不排除其他主题
 - 每天 04:30 清理：衰减后低于 0.05 且超过 180 天的删除，每个 scope 截到 `MEMORY_MAX_PER_SCOPE`
+
+### 长期记忆：自动提炼、主题与向量
+
+A0（默认关闭，`MEMORY_EXTRACT_ENABLED`）：
+
+- 每 N 条消息（默认 10）后台提炼一次，独立 LLM 调用，不阻塞回复
+- 只读 `messages` 表（和机器人的对话），不读群聊缓冲；只读群不提炼
+- 只抽用户明确说过的长期事实，保留 `source_message_ids` 可回溯
+- 精确 hash + `difflib` 近似去重；重复只更新 importance
+- 每日 05:10 补跑有积压的会话，每天最多 `MEMORY_EXTRACT_DAILY_LIMIT` 次
+
+C（`MEMORY_HIERARCHY_ENABLED`）：
+
+- 提炼时让模型给 2–8 字主题名和同义词关键词，主题按 scope 隔离
+- 检索时主题只加分、prompt 里按主题分组；**不做硬门禁**
+- 主题事实 ≥5 条时生成 1–2 句摘要（压缩），每天 05:20 刷新
+- 主题上限 50，超出并入「其他」；空主题自动清理
+
+A1（`EMBEDDING_ENABLED`）：
+
+- 走 OpenAI 兼容 `/embeddings`；DeepSeek 本身没有 embedding
+- 向量存 SQLite BLOB，numpy 余弦；失败自动降级关键词
+- 补向量：`.\.venv\Scripts\python.exe -m app.memory.reindex`
+- 旧记忆补主题：`.\.venv\Scripts\python.exe -m app.memory.backfill`
 
 ### 图片与表情
 
@@ -355,6 +380,14 @@ python -m app.review.server
 | `AGENT_HISTORY_TURNS` | 8 | 带多少轮历史（1 轮 = 1 问 1 答） |
 | `AGENT_MEMORY_LIMIT` | 5 | 每轮注入多少条记忆 |
 | `MEMORY_DB` | data/memory.db | SQLite 路径 |
+| `MEMORY_EXTRACT_ENABLED` | false | 是否后台自动提炼长期记忆 |
+| `MEMORY_EXTRACT_EVERY` | 10 | 攒多少条消息提炼一次 |
+| `MEMORY_EXTRACT_DAILY_LIMIT` | 20 | 每天最多提炼次数 |
+| `MEMORY_HIERARCHY_ENABLED` | false | 是否启用主题软分层 |
+| `AGENT_MEMORY_TOPICS` | 3 | 每轮最多注入几个主题 |
+| `MEMORY_TOPICS_MAX` | 50 | 每个 scope 的主题上限 |
+| `EMBEDDING_ENABLED` | false | 是否启用向量检索 |
+| `EMBEDDING_MODEL` | BAAI/bge-m3 | OpenAI 兼容 embedding 模型名 |
 | `WEB_FETCH_TIMEOUT` | 15 | 抓网页超时（秒） |
 | `WEB_FETCH_MAX_BYTES` | 2000000 | 响应体上限 |
 | `WEB_FETCH_MAX_CHARS` | 4000 | 喂给模型的正文上限 |
@@ -398,8 +431,11 @@ python -m app.review.server
 | GET | `/api/v1/activity` | 当日（或 `?date=` 指定）消息、工具、评价、花费 |
 | POST | `/api/v1/chat` | `{"message": "..."}` → `{"reply": "...", "skill_used": "chat"}` |
 | POST | `/api/v1/broadcast` | `{"message": "...", "groups": ["..."]}` 群发，需 QQ 已连接 |
+| GET | `/api/v1/memory/topics?scope_type=user&scope_id=1` | 主题列表（名称、关键词、摘要、事实数） |
+| GET | `/api/v1/memory/topics/{id}` | 主题详情 + 事实 |
+| POST | `/api/v1/memory/extract?scope_type=user&scope_id=1` | 手动触发一次记忆提炼 |
 
-设置了 `API_TOKEN` 后，`/chat`、`/broadcast`、`/activity` 必须携带 `Authorization: Bearer <token>`；`/health` 与 `/skills` 保持公开只读。
+设置了 `API_TOKEN` 后，`/chat`、`/broadcast`、`/activity` 以及记忆接口必须携带 `Authorization: Bearer <token>`；`/health` 与 `/skills` 保持公开只读。
 
 ## 人设机制
 

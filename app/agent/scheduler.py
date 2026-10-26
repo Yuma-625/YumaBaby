@@ -94,10 +94,50 @@ class ScheduledTasks:
         try:
             before = store.count_memories()
             removed = store.prune_memories()
+            store.delete_empty_topics()
             logger.info(f"记忆维护：{before} -> {before - removed}（删除 {removed} 条）")
             store.add_event("memory_prune", "maintenance", "", {"removed": removed})
         except Exception:
             logger.exception("记忆维护失败")
+
+    async def memory_extract(self):
+        """补跑所有有积压的会话，把对话提炼成长期记忆。"""
+        from app import shared
+        from app.memory.extractor import extract_scope
+
+        store = shared.memory_store
+        if store is None or not settings.MEMORY_EXTRACT_ENABLED:
+            return
+        for chat_id in store.recent_chat_ids(50):
+            if ":" not in chat_id:
+                continue
+            scope_type, scope_id = chat_id.split(":", 1)
+            if scope_type not in ("user", "group"):
+                continue
+            cursor = store.get_extract_cursor(scope_type, scope_id)
+            if store.pending_message_count(chat_id, cursor) < 4:
+                continue
+            try:
+                await extract_scope(
+                    store, scope_type, scope_id, chat_id=chat_id
+                )
+            except Exception:
+                logger.exception(f"记忆提炼失败: {chat_id}")
+
+    async def memory_summary(self):
+        """刷新主题摘要（压缩），并清理空主题。"""
+        from app import shared
+        from app.memory.summaries import refresh_scope_topics
+
+        store = shared.memory_store
+        if store is None or not settings.MEMORY_HIERARCHY_ENABLED:
+            return
+        for scope_type, scope_id in store.list_topic_scopes():
+            try:
+                await refresh_scope_topics(store, scope_type, scope_id)
+            except Exception:
+                logger.exception(f"主题摘要失败: {scope_type}:{scope_id}")
+        store.delete_empty_topics()
 
     async def push_group_analysis(self):
         """每晚分析只读群的聊天特征，私聊给管理员。"""
@@ -189,6 +229,28 @@ def start_scheduler():
             **JOB_DEFAULTS,
         )
         logger.info(f"群聊日报任务已启用: {settings.GROUP_ANALYSIS_GROUPS}")
+    if settings.MEMORY_EXTRACT_ENABLED:
+        scheduler.add_job(
+            tasks.memory_extract,
+            "cron",
+            hour=5,
+            minute=10,
+            id="memory_extract",
+            replace_existing=True,
+            **JOB_DEFAULTS,
+        )
+        logger.info("记忆提炼任务已启用（每天 05:10）")
+    if settings.MEMORY_HIERARCHY_ENABLED:
+        scheduler.add_job(
+            tasks.memory_summary,
+            "cron",
+            hour=5,
+            minute=20,
+            id="memory_summary",
+            replace_existing=True,
+            **JOB_DEFAULTS,
+        )
+        logger.info("主题摘要任务已启用（每天 05:20）")
     scheduler.start()
     logger.info("定时任务已启动")
 

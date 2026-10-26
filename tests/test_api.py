@@ -67,6 +67,65 @@ class ApiTest(unittest.TestCase):
         with patch.object(shared, "memory_store", None):
             self.assertEqual(client.get("/api/v1/activity").status_code, 503)
 
+    def test_memory_topics_endpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp) / "m.db")
+            topic_id = store.upsert_topic("user", "1", "结婚", "婚姻", "准备婚礼")
+            store.remember("user", "1", "用户明年结婚", topic_id=topic_id)
+            try:
+                with patch.object(shared, "memory_store", store):
+                    resp = client.get(
+                        "/api/v1/memory/topics",
+                        params={"scope_type": "user", "scope_id": "1"},
+                    )
+                    detail = client.get(f"/api/v1/memory/topics/{topic_id}")
+                self.assertEqual(resp.status_code, 200)
+                topics = resp.json()["topics"]
+                self.assertEqual(topics[0]["name"], "结婚")
+                self.assertEqual(topics[0]["facts"], 1)
+                self.assertEqual(detail.status_code, 200)
+                self.assertEqual(detail.json()["memories"][0]["text"], "用户明年结婚")
+            finally:
+                store.close()
+
+    def test_memory_topics_validates_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp) / "m.db")
+            try:
+                with patch.object(shared, "memory_store", store):
+                    resp = client.get(
+                        "/api/v1/memory/topics",
+                        params={"scope_type": "bad", "scope_id": "1"},
+                    )
+                self.assertEqual(resp.status_code, 422)
+            finally:
+                store.close()
+
+    def test_memory_extract_endpoint_quiet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp) / "m.db")
+            store.save_message("user:1", "user", "只有一条")
+            try:
+                with patch.object(shared, "memory_store", store):
+                    resp = client.post(
+                        "/api/v1/memory/extract",
+                        params={"scope_type": "user", "scope_id": "1"},
+                    )
+                self.assertEqual(resp.status_code, 200)
+                self.assertEqual(resp.json()["added"], 0)
+            finally:
+                store.close()
+
+    def test_memory_topic_missing_returns_404(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp) / "m.db")
+            try:
+                with patch.object(shared, "memory_store", store):
+                    resp = client.get("/api/v1/memory/topics/9999")
+                self.assertEqual(resp.status_code, 404)
+            finally:
+                store.close()
+
     def test_lifespan_starts_and_stops_cleanly(self):
         """不启 QQ 的前提下走完 startup/shutdown，确认调度器能正常起停。"""
         with patch.object(settings, "QQ_ENABLED", False):
