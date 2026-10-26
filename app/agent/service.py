@@ -46,6 +46,7 @@ class AgentService:
         scope_type: str,
         scope_id: str,
         auto_participate: bool = False,
+        at_targets: list[dict] | None = None,
     ) -> str:
         text = (text or "").strip()
         if not text:
@@ -66,6 +67,12 @@ class AgentService:
             )
 
         system_prompt = build_system_prompt(self.persona.get_system_prompt(), memories)
+        if at_targets:
+            names = "、".join(
+                str(t.get("name") or t.get("qq")) for t in at_targets if t.get("qq")
+            )
+            if names:
+                system_prompt += f"\n\n本条消息里 @ 了：{names}。可以直接用这些名字回应。"
         if auto_participate:
             system_prompt += (
                 "\n\n这是群里别人的聊天，你在旁听。只有确实有想说的、能自然接上话时才开口；"

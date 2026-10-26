@@ -84,6 +84,23 @@ class AutoParticipationTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.1)
             self.assertEqual(self.calls, [])
 
+    async def test_resolve_at_names_and_cache(self):
+        calls = []
+
+        async def fake_api(action, params, timeout=10):
+            calls.append((action, params))
+            return {"status": "ok", "data": {"card": "奶鱼"}}
+
+        self.adapter._call_api = fake_api
+        targets = [{"qq": "20002", "name": ""}]
+        await self.adapter._resolve_at_names("100", targets)
+        self.assertEqual(targets[0]["name"], "奶鱼")
+
+        cached = [{"qq": "20002", "name": ""}]
+        await self.adapter._resolve_at_names("100", cached)
+        self.assertEqual(cached[0]["name"], "奶鱼")
+        self.assertEqual(len(calls), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

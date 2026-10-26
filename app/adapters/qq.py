@@ -42,6 +42,60 @@ def extract_reply_id(raw: str | None) -> str | None:
 
 
 @dataclass
+class ParsedMessage:
+    text: str
+    at_targets: list[dict[str, str]] = field(default_factory=list)
+    at_bot: bool = False
+    reply_to: str | None = None
+
+
+def parse_message(data: dict) -> ParsedMessage:
+    """同时兼容 messagePostFormat=array 与 string。
+
+    - array：从 message 段里取 text / at / reply
+    - string：退回 raw_message，用 CQ 码正则解析
+
+    @ 目标优先带昵称；没有昵称时用 QQ 号，至少不让信息丢失。
+    """
+    bot_uid = str(settings.QQ_BOT_UID or "")
+    targets: list[dict[str, str]] = []
+    reply_to: str | None = None
+    message = data.get("message")
+
+    if isinstance(message, list):
+        parts: list[str] = []
+        for segment in message:
+            if not isinstance(segment, dict):
+                continue
+            seg_type = segment.get("type")
+            payload = segment.get("data") or {}
+            if seg_type == "text":
+                parts.append(str(payload.get("text", "")))
+            elif seg_type == "at":
+                qq = str(payload.get("qq", "")).strip()
+                name = str(payload.get("name", "")).strip()
+                if not qq or qq == "all":
+                    continue
+                targets.append({"qq": qq, "name": name})
+                if qq != bot_uid:
+                    parts.append(f"@{name or qq} ")
+            elif seg_type == "reply":
+                rid = str(payload.get("id", "")).strip()
+                if rid:
+                    reply_to = rid
+        text = " ".join("".join(parts).split())
+    else:
+        raw = data.get("raw_message", "") or ""
+        text = clean_message(raw)
+        for qq in re.findall(r"\[CQ:at,qq=(\d+)", raw):
+            targets.append({"qq": qq, "name": ""})
+        reply_to = extract_reply_id(raw)
+
+    at_bot = bool(bot_uid) and any(t["qq"] == bot_uid for t in targets)
+    return ParsedMessage(text=text, at_targets=targets, at_bot=at_bot, reply_to=reply_to)
+
+
+@dataclass
 class _PendingChat:
     """一个会话的连发缓冲。"""
 
@@ -51,6 +105,7 @@ class _PendingChat:
     user_id: str | None = None
     reply_to: str | None = None
     auto: bool = False
+    at_targets: list[dict[str, str]] = field(default_factory=list)
 
 
 class QQAdapter(BaseAdapter):
@@ -80,6 +135,7 @@ class QQAdapter(BaseAdapter):
         self._awaiting_since = 0.0
         self._pending: dict[str, _PendingChat] = {}
         self._last_auto_reply: dict[str, float] = {}
+        self._at_name_cache: dict[str, str] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -207,30 +263,70 @@ class QQAdapter(BaseAdapter):
     async def _handle_group_message(self, data: dict):
         group_id = str(data.get("group_id", ""))
         user_id = str(data.get("user_id", ""))
-        raw_message = data.get("raw_message", "")
 
         if settings.QQ_TARGET_GROUPS and group_id not in settings.QQ_TARGET_GROUPS:
             return
 
-        text = clean_message(raw_message)
-        logger.info(f"收到群消息 [{group_id}] {user_id}: {text}")
+        parsed = parse_message(data)
+        await self._resolve_at_names(group_id, parsed.at_targets)
+        text = parsed.text
+        logger.info(
+            f"收到群消息 [{group_id}] {user_id}: {text} | "
+            f"at={[t['name'] or t['qq'] for t in parsed.at_targets]}"
+        )
 
         # 已经在这个会话的合并窗口里时，后续碎片消息不再要求触发词
         active = self._pending_key(group_id, user_id) in self._pending
         auto = False
-        if not active and not self._is_group_triggered(raw_message, text):
+        if not active and not self._is_group_triggered(parsed.at_bot, text):
             if not self._should_auto_participate(group_id, text):
                 return
             auto = True
             # 先记冷却再入队，避免连发消息在任务完成前绕过节流
             self._last_auto_reply[group_id] = asyncio.get_running_loop().time()
 
+        if not text and parsed.at_bot:
+            text = "（只是 @ 了我一下，没有说别的）"
+
         text = self._truncate(text)
         if not text:
             return
         if self.on_message:
-            self._enqueue(text, group_id=group_id, user_id=user_id,
-                          reply_to=extract_reply_id(raw_message), auto=auto)
+            self._enqueue(
+                text, group_id=group_id, user_id=user_id,
+                reply_to=parsed.reply_to, auto=auto,
+                at_targets=parsed.at_targets,
+            )
+
+    async def _resolve_at_names(self, group_id: str, targets: list[dict[str, str]]) -> None:
+        """at 段没带昵称时，用群成员信息补齐；结果按 QQ 号缓存。"""
+        for target in targets:
+            qq = target.get("qq", "")
+            if target.get("name") or not qq:
+                continue
+            if qq == str(settings.QQ_BOT_UID):
+                continue
+            cached = self._at_name_cache.get(qq)
+            if cached:
+                target["name"] = cached
+                continue
+            try:
+                response = await self._call_api(
+                    "get_group_member_info",
+                    {
+                        "group_id": int(group_id) if group_id.isdigit() else group_id,
+                        "user_id": int(qq) if qq.isdigit() else qq,
+                        "no_cache": False,
+                    },
+                    timeout=5,
+                )
+                data = response.get("data") or {}
+                name = str(data.get("card") or data.get("nickname") or "").strip()
+                if name:
+                    target["name"] = name
+                    self._at_name_cache[qq] = name
+            except Exception:
+                logger.debug(f"获取群成员昵称失败: {qq}", exc_info=True)
 
     def _should_auto_participate(self, group_id: str, text: str) -> bool:
         """白名单群里的旁听接话：概率触发 + 冷却，@/关键词不经过这里。"""
@@ -248,10 +344,9 @@ class QQAdapter(BaseAdapter):
             rate = min(1.0, rate * 2)
         return random.random() < rate
 
-    def _is_group_triggered(self, raw_message: str, text: str) -> bool:
+    def _is_group_triggered(self, mentioned: bool, text: str) -> bool:
         """按 GROUP_TRIGGER_MODE 判断群里这条消息要不要回应。"""
         mode = settings.GROUP_TRIGGER_MODE
-        mentioned = bool(settings.QQ_BOT_UID) and f"[CQ:at,qq={settings.QQ_BOT_UID}" in raw_message
         keyword = any(kw and kw in text for kw in settings.QQ_AUTO_REPLY_KEYWORDS)
 
         if mode == "all":
@@ -304,7 +399,7 @@ class QQAdapter(BaseAdapter):
 
     def _enqueue(self, text: str, *, group_id: str | None = None,
                  user_id: str | None = None, reply_to: str | None = None,
-                 auto: bool = False) -> None:
+                 auto: bool = False, at_targets: list[dict[str, str]] | None = None) -> None:
         """把消息放进对应会话的缓冲，窗口结束后合并处理。
 
         DEBOUNCE_SECONDS<=0 时退化为立即处理。
@@ -328,6 +423,9 @@ class QQAdapter(BaseAdapter):
             entry.auto = entry.auto and auto
 
         entry.texts.append(text)
+        for target in at_targets or []:
+            if target not in entry.at_targets:
+                entry.at_targets.append(target)
         if reply_to:
             entry.reply_to = reply_to
         if entry.timer is not None:
@@ -360,7 +458,8 @@ class QQAdapter(BaseAdapter):
         logger.debug(f"合并 {len(entry.texts)} 条消息后处理: {text[:60]}")
         if entry.group_id:
             await self._process_and_reply(
-                entry.group_id, entry.user_id or "", text, entry.reply_to, entry.auto
+                entry.group_id, entry.user_id or "", text, entry.reply_to,
+                entry.auto, entry.at_targets,
             )
         else:
             await self._process_private_reply(entry.user_id or "", text, entry.reply_to)
@@ -394,12 +493,14 @@ class QQAdapter(BaseAdapter):
     # ------------------------------------------------------------------ 发消息
 
     async def _process_and_reply(self, group_id: str, user_id: str, text: str,
-                                 reply_to: str | None = None, auto: bool = False):
+                                 reply_to: str | None = None, auto: bool = False,
+                                 at_targets: list[dict[str, str]] | None = None):
         result = await self.on_message(text, {
             "group_id": group_id,
             "user_id": user_id,
             "reply_to_id": reply_to,
             "auto_participate": auto,
+            "at_targets": at_targets or [],
         })
         if result:
             response = await self.send_group_msg(group_id, result)

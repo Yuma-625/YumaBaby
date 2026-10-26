@@ -53,6 +53,7 @@ async def on_qq_message(message: str, context: dict) -> str:
             scope_type="group",
             scope_id=str(group_id),
             auto_participate=bool(context.get("auto_participate")),
+            at_targets=context.get("at_targets") or [],
         )
 
     return await service.handle(
