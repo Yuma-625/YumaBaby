@@ -9,7 +9,14 @@ from unittest.mock import patch
 
 from app.config import settings
 from app.memory.store import MemoryStore
-from app.stickers import handle_sticker_command, is_sticker_command, save_sticker
+from app.stickers import (
+    handle_sticker_command,
+    handle_sticker_send,
+    is_send_command,
+    is_sticker_command,
+    parse_send_id,
+    save_sticker,
+)
 
 
 def png_bytes() -> bytes:
@@ -100,6 +107,64 @@ class StickerCommandTest(unittest.TestCase):
             group_id="100", user_id="1293585554",
         ))
         self.assertIn("存好了", reply)
+
+    def test_send_command_detection(self):
+        self.assertTrue(is_send_command("发 1 号表情"))
+        self.assertTrue(is_send_command("发表情 2"))
+        self.assertTrue(is_send_command("发个表情"))
+        self.assertFalse(is_send_command("这个表情真好笑"))
+        self.assertFalse(is_send_command("存这个表情包"))
+        self.assertEqual(parse_send_id("发 3 号表情"), 3)
+        self.assertIsNone(parse_send_id("发个表情"))
+
+    def test_send_by_id(self):
+        asyncio.run(save_sticker(
+            self.store,
+            attachments=[{"type": "image", "url": data_uri(), "summary": "[动画表情]"}],
+            group_id="100", user_id="1293585554",
+        ))
+        reply = asyncio.run(handle_sticker_send(
+            "发 1 号表情", store=self.store, user_id="1293585554",
+        ))
+        self.assertTrue(reply.startswith("[CQ:image,file=base64://"))
+
+    def test_send_random(self):
+        asyncio.run(save_sticker(
+            self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        reply = asyncio.run(handle_sticker_send(
+            "发个表情", store=self.store, user_id="1293585554",
+        ))
+        self.assertTrue(reply.startswith("[CQ:image"))
+
+    def test_send_missing_id(self):
+        asyncio.run(save_sticker(
+            self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        reply = asyncio.run(handle_sticker_send(
+            "发 99 号表情", store=self.store, user_id="1293585554",
+        ))
+        self.assertIn("没有 #99", reply)
+
+    def test_send_empty_library(self):
+        reply = asyncio.run(handle_sticker_send(
+            "发个表情", store=self.store, user_id="1293585554",
+        ))
+        self.assertIn("空的", reply)
+
+    def test_send_non_admin_ignored(self):
+        asyncio.run(save_sticker(
+            self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        self.assertIsNone(asyncio.run(handle_sticker_send(
+            "发个表情", store=self.store, user_id="12345",
+        )))
 
 
 if __name__ == "__main__":

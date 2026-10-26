@@ -6,6 +6,7 @@
 import base64
 import hashlib
 import logging
+import random
 import re
 from pathlib import Path
 
@@ -148,3 +149,63 @@ async def handle_sticker_command(
     return await save_sticker(
         store, attachments=attachments, group_id=group_id, user_id=user_id
     )
+
+
+# --------------------------------------------------------------------- 发表情
+
+_SEND_ID_RE = re.compile(r"(?:发|来)(?:个|一下)?\s*(?:表情包?)?\s*#?(\d+)")
+_SEND_WORDS = ("发", "来")
+
+
+def is_send_command(text: str) -> bool:
+    value = (text or "").strip().strip(_PUNCT)
+    if "表情" not in value or len(value) > 30:
+        return False
+    if is_sticker_command(value):
+        return False
+    return any(word in value for word in _SEND_WORDS)
+
+
+def parse_send_id(text: str) -> int | None:
+    match = _SEND_ID_RE.search(text or "")
+    return int(match.group(1)) if match else None
+
+
+def _build_image_cq(sticker: dict) -> str | None:
+    path = Path(sticker.get("path", ""))
+    if not path.exists() or path.stat().st_size > settings.STICKER_MAX_BYTES:
+        return None
+    data = path.read_bytes()
+    return "[CQ:image,file=base64://" + base64.b64encode(data).decode() + "]"
+
+
+async def handle_sticker_send(
+    text: str,
+    *,
+    store: MemoryStore,
+    user_id: str,
+) -> str | None:
+    """管理员发表情：`发 3 号表情` / `发表情 3` / `发个表情`（随机）。"""
+    if user_id != settings.QQ_PERSONA_ADMIN:
+        return None
+    if not is_send_command(text):
+        return None
+
+    if store.count_stickers() == 0:
+        return "表情库还是空的，先说「存这个表情包」存一个。"
+
+    sticker_id = parse_send_id(text)
+    if sticker_id is not None:
+        sticker = store.get_sticker(sticker_id)
+        if sticker is None:
+            return f"没有 #{sticker_id} 这个表情，当前一共 {store.count_stickers()} 个。"
+    else:
+        candidates = store.list_stickers(limit=200)
+        sticker = random.choice(candidates)
+
+    cq = _build_image_cq(sticker)
+    if cq is None:
+        return "这个表情文件不在了或太大，发不出来。"
+    logger.info(f"发送表情 #{sticker['id']}")
+    return cq
+

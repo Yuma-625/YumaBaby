@@ -241,7 +241,15 @@ python -m app.review.server
 
 保存到 `data/stickers/<sha1>.<ext>`，`stickers` 表记录 hash、来源、时间；同一张图按内容 hash 去重。文件名以外的信息都不会外发。
 
-目前只做收藏，不做“发回来”；要的话下一步加 `/发 3` 之类的指令。
+发回来同样是管理员指令：
+
+```text
+发 1 号表情
+发表情 2
+发个表情        # 随机一个
+```
+
+发送时用 `base64://` 的 CQ 码，不依赖 NapCat 的 `enableLocalFile2Url` 开关。
 
 ### 群聊自动旁听
 
