@@ -94,6 +94,12 @@ class Settings:
     WEB_FETCH_MAX_BYTES: int = _env_int("WEB_FETCH_MAX_BYTES", 2_000_000)
     WEB_FETCH_MAX_CHARS: int = _env_int("WEB_FETCH_MAX_CHARS", 4000)
 
+    # 图片理解
+    VISION_ENABLED: bool = _env_bool("VISION_ENABLED", True)
+    VISION_MAX_IMAGES: int = _env_int("VISION_MAX_IMAGES", 2)
+    VISION_MAX_BYTES: int = _env_int("VISION_MAX_BYTES", 5_000_000)
+    VISION_TIMEOUT: float = float(os.getenv("VISION_TIMEOUT", "15"))
+
     # 数据 / 缓存
     STOCK_DATA_SOURCE: str = os.getenv("STOCK_DATA_SOURCE", "akshare")
     CACHE_TTL: int = _env_int("CACHE_TTL", 300)

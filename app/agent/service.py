@@ -68,6 +68,15 @@ class AgentService:
             )
 
         system_prompt = build_system_prompt(self.persona.get_system_prompt(), memories)
+        image_parts = []
+        if attachments:
+            from app.utils.vision import build_image_parts
+            image_parts = await build_image_parts(attachments)
+            if image_parts:
+                system_prompt += (
+                    "\n\n用户发来了图片，请结合图片内容回答。"
+                    "看不清或图里没有相关信息就直说，不要编造。"
+                )
         if at_targets:
             pairs = [
                 f"{t.get('name') or t.get('qq')}(QQ:{t.get('qq')})"
@@ -87,7 +96,9 @@ class AgentService:
             )
         token = set_scope((scope_type, scope_id))
         try:
-            result = await self.loop.run(text, system_prompt=system_prompt, history=history)
+            result = await self.loop.run(
+                text, system_prompt=system_prompt, history=history, images=image_parts
+            )
         finally:
             reset_scope(token)
 

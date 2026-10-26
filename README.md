@@ -207,12 +207,15 @@ python -m app.review.server
 
 ### 图片与表情
 
-收到的图片/表情不会丢，但**模型看不到画面**（`deepseek-chat` 是纯文本模型）：
+- 图片会下载、转成 base64 后作为 `image_url` 内容段发给模型（`deepseek-chat` 本身支持视觉）
+- 只发送**当前这一条消息**里的图片，历史里的图不重复发送，避免每轮重复计费
+- 每轮最多 `VISION_MAX_IMAGES` 张、单张不超过 `VISION_MAX_BYTES`，超限跳过
+- 图片下载走 SSRF 校验（拒绝私网/回环地址）
+- 表情仍按文字：`[表情:微笑]`；系统表情只有 id 时记 `[表情]`
+- 元数据（url/file/summary）存进 `messages.attachments`，数据集导出时带 `user_attachments`
+- ⚠️ 图片会发送到模型服务商，涉及隐私的图片建议先关闭 `VISION_ENABLED`
 
-- 图片 → 文本占位 `[图片]`，元数据（url/file/summary）存进 `messages.attachments`
-- 表情 → `[表情:微笑]`；系统表情只有 id 时记 `[表情]`
-- 标注导出的数据集会带上 `user_attachments`，方便以后做视觉标注
-- 要让机器人真正“看懂”，需要接视觉模型或 OCR（尚未实现）
+实测：左右红蓝分色图，模型回答「左边红色，右边蓝色」。
 
 ### 群聊自动旁听
 

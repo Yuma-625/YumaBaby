@@ -114,6 +114,17 @@ class AgentServiceTest(unittest.TestCase):
         self.assertIn("功能列表", reply)
         self.assertEqual(llm.messages_seen, [])
 
+    def test_image_is_sent_as_multimodal_content(self):
+        service, llm = self.make_service([answer("红色的")])
+        asyncio.run(service.handle(
+            "这是什么颜色", chat_id="user:1", scope_type="user", scope_id="1",
+            attachments=[{"type": "image", "url": "data:image/png;base64,AAAA"}],
+        ))
+        user_message = next(m for m in llm.messages_seen[0] if m["role"] == "user")
+        self.assertIsInstance(user_message["content"], list)
+        self.assertEqual(user_message["content"][0]["type"], "text")
+        self.assertEqual(user_message["content"][1]["type"], "image_url")
+
     def test_attachments_are_saved(self):
         service, _ = self.make_service([answer("看到了")])
         asyncio.run(service.handle(

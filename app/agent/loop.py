@@ -56,13 +56,18 @@ class AgentLoop:
         *,
         system_prompt: str = "",
         history: list[dict[str, Any]] | None = None,
+        images: list[dict[str, Any]] | None = None,
         kind: str = "agent",
     ) -> AgentResult:
         messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.extend(history or [])
-        messages.append({"role": "user", "content": user_message})
+        content: Any = (
+            [{"type": "text", "text": user_message}, *images]
+            if images else user_message
+        )
+        messages.append({"role": "user", "content": content})
 
         trace: list[dict[str, Any]] = []
         seen: dict[tuple[str, str], int] = {}
