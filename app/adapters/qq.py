@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 # OneBot v11 消息中的 CQ 码，例如 [CQ:at,qq=123]、[CQ:image,file=xxx]
 _CQ_CODE_RE = re.compile(r"\[CQ:[^\]]*\]")
+# 模型输出里的 @ 标记，发送前转成真正的 CQ 码
+_MENTION_RE = re.compile(r"\[\[at:(\d+)\]\]")
 # CQ 码转义表（OneBot v11 规范）
 _CQ_UNESCAPE = (
     ("&amp;", "&"),
@@ -39,6 +41,11 @@ def extract_reply_id(raw: str | None) -> str | None:
     """取引用回复指向的消息 id（[CQ:reply,id=...]）。"""
     match = re.search(r"\[CQ:reply,id=(\d+)", raw or "")
     return match.group(1) if match else None
+
+
+def format_mentions(text: str) -> str:
+    """把 [[at:QQ]] 转成 OneBot 的 [CQ:at,qq=QQ]。"""
+    return _MENTION_RE.sub(r"[CQ:at,qq=\1]", text or "")
 
 
 @dataclass
@@ -578,7 +585,7 @@ class QQAdapter(BaseAdapter):
     async def send_group_msg(self, group_id: str, message: str):
         result = await self._call_api("send_group_msg", {
             "group_id": group_id,
-            "message": message,
+            "message": format_mentions(message),
         })
         if result.get("status") == "failed":
             logger.error(f"群消息发送失败 [{group_id}]: {result.get('error')}")

@@ -68,11 +68,17 @@ class AgentService:
 
         system_prompt = build_system_prompt(self.persona.get_system_prompt(), memories)
         if at_targets:
-            names = "、".join(
-                str(t.get("name") or t.get("qq")) for t in at_targets if t.get("qq")
-            )
-            if names:
-                system_prompt += f"\n\n本条消息里 @ 了：{names}。可以直接用这些名字回应。"
+            pairs = [
+                f"{t.get('name') or t.get('qq')}(QQ:{t.get('qq')})"
+                for t in at_targets if t.get("qq")
+            ]
+            if pairs:
+                sample = at_targets[0].get("qq")
+                system_prompt += (
+                    f"\n\n本条消息 @ 了：{'、'.join(pairs)}。"
+                    f"如果你要 @ 对方，在回复里写 [[at:QQ号]]（例如 [[at:{sample}]] 你好），"
+                    "发送时会转换成真正的 @；不要直接写 QQ 号当称呼。"
+                )
         if auto_participate:
             system_prompt += (
                 "\n\n这是群里别人的聊天，你在旁听。只有确实有想说的、能自然接上话时才开口；"

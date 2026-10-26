@@ -1,6 +1,6 @@
 import unittest
 
-from app.adapters.qq import clean_message, parse_message
+from app.adapters.qq import clean_message, format_mentions, parse_message
 from app.config import settings
 
 
@@ -23,6 +23,9 @@ class CleanMessageTest(unittest.TestCase):
 
 
 class ParseMessageTest(unittest.TestCase):
+    def test_format_mentions(self):
+        self.assertEqual(format_mentions("[[at:123]] 你好"), "[CQ:at,qq=123] 你好")
+        self.assertEqual(format_mentions("没有标记"), "没有标记")
     def test_array_message_keeps_at_target(self):
         data = {"message": [
             {"type": "text", "data": {"text": "你和 "}},

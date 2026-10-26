@@ -114,6 +114,16 @@ class AgentServiceTest(unittest.TestCase):
         self.assertIn("功能列表", reply)
         self.assertEqual(llm.messages_seen, [])
 
+    def test_at_targets_are_added_to_prompt(self):
+        service, llm = self.make_service([answer("打个招呼")])
+        asyncio.run(service.handle(
+            "和@奶鱼 打个招呼", chat_id="group:1", scope_type="group", scope_id="1",
+            at_targets=[{"qq": "20002", "name": "奶鱼"}],
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("[[at:20002]]", system)
+        self.assertIn("奶鱼", system)
+
     def test_auto_participation_can_skip(self):
         service, _ = self.make_service([answer("[SKIP]")])
         reply = asyncio.run(service.handle(

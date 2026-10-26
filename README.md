@@ -18,6 +18,8 @@ Copy-Item .env.example .env
 .\.venv\Scripts\python.exe run.py
 ```
 
+> 同一时间只能运行一个实例：`run.py` 会持有 `data/yumababy.lock`，重复启动会直接退出。多开会导致同一条消息被回复两次。
+
 启动后：
 
 - HTTP: `http://127.0.0.1:8000/api/v1/health`
@@ -211,6 +213,7 @@ python -m app.review.server
 - 其他消息按 `PARTICIPATION_RATE` 抽样（问句概率翻倍），并受 `PARTICIPATION_COOLDOWN_SECONDS` 冷却
 - 被抽中的消息交给模型，模型可以选择**不接话**（输出 `[SKIP]`，不发送也不入库）
 - 接话与跳过都会写 `events`，方便回看它为什么开口
+- 消息里有人被 @ 时，模型会输出 `[[at:QQ]]`，适配器发送前转成真正的 `[CQ:at,qq=QQ]`
 
 主动消息也收紧了：人设总结只在**有待审规则**、**最近 10 分钟没有对话**、**当天未推送**时才发。
 
