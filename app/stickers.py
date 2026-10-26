@@ -122,30 +122,49 @@ async def save_sticker(
     data, ctype = downloaded
     digest = hashlib.sha1(data).hexdigest()
     name = parse_sticker_name(text)
-    sticker_id, inserted, renamed = store.save_sticker(
-        digest,
-        str(Path(settings.STICKERS_DIR) / f"{digest[:16]}{_ALLOWED_CTYPES[ctype]}"),
-        ctype=ctype,
-        summary=str(attachment.get("summary", "")),
-        source_group=group_id or "",
-        source_user=user_id,
-        name=name,
-    )
-
     out_dir = Path(settings.STICKERS_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{digest[:16]}{_ALLOWED_CTYPES[ctype]}"
-    if not path.exists():
-        path.write_bytes(data)
+    ext = _ALLOWED_CTYPES[ctype]
+
+    existing = store.get_sticker_by_hash(digest)
+    if existing is not None:
+        old_path = Path(existing["path"])
+        final_name = name or existing.get("name") or ""
+        base = _safe_name(final_name) or digest[:16]
+        target = _unique_path(out_dir, base, ext, digest)
+        if old_path.exists() and old_path.resolve() != target.resolve():
+            try:
+                old_path.rename(target)
+            except OSError:
+                target = old_path
+        elif not target.exists():
+            target.write_bytes(data)
+        store.set_sticker_path_name(existing["id"], str(target), final_name)
+        sticker_id, inserted = int(existing["id"]), False
+        renamed = bool(name and name != (existing.get("name") or ""))
+        label = final_name or (attachment.get("summary") or "表情").strip("[]")
+    else:
+        base = _safe_name(name) or digest[:16]
+        target = _unique_path(out_dir, base, ext, digest)
+        target.write_bytes(data)
+        sticker_id, inserted, renamed = store.save_sticker(
+            digest,
+            str(target),
+            ctype=ctype,
+            summary=str(attachment.get("summary", "")),
+            source_group=group_id or "",
+            source_user=user_id,
+            name=name,
+        )
+        label = name or (attachment.get("summary") or "表情").strip("[]")
 
     total = store.count_stickers()
-    label = name or (attachment.get("summary") or "表情").strip("[]")
     if inserted:
         suffix = f"「{name}」" if name else f"（{label}）"
         return f"存好了，表情包 #{sticker_id}{suffix}，一共 {total} 个。"
     if renamed:
         return f"已把 #{sticker_id} 命名为「{name}」，一共 {total} 个。"
-    suffix = f"「{name}」" if name else f"（{label}）"
+    suffix = f"「{label}」" if label else ""
     return f"这个之前存过了，是 #{sticker_id}{suffix}，一共 {total} 个。"
 
 
@@ -234,11 +253,32 @@ _EXT_CTYPE = {
     ".gif": "image/gif",
 }
 
+_BAD_NAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _safe_name(name: str) -> str:
+    return _BAD_NAME_CHARS.sub("_", (name or "").strip()).strip(" .")[:40]
+
+
+def _unique_path(directory: Path, base: str, ext: str, digest: str) -> Path:
+    candidate = directory / f"{base}{ext}"
+    if not candidate.exists():
+        return candidate
+    try:
+        if hashlib.sha1(candidate.read_bytes()).hexdigest() == digest:
+            return candidate
+    except OSError:
+        pass
+    return directory / f"{base}-{digest[:6]}{ext}"
+
+
+_HASH_STEM = re.compile(r"^[0-9a-f]{16}$")
+
 
 def sync_sticker_files(store: MemoryStore) -> int:
     """扫描表情目录：文件被手动改名/移动后，按内容 hash 修正数据库。
 
-    - 已有记录：更新 path；名字为空时用文件名补上
+    - 已有记录：更新 path；有名字时把文件改名成该名字
     - 没有记录的新文件：直接收录，名字取文件名
     """
     directory = Path(settings.STICKERS_DIR)
@@ -254,11 +294,30 @@ def sync_sticker_files(store: MemoryStore) -> int:
         except OSError:
             continue
         digest = hashlib.sha1(data).hexdigest()
-        if store.update_sticker(digest, str(file), name=file.stem) is None:
+        row = store.get_sticker_by_hash(digest)
+
+        if row is None:
+            name = "" if _HASH_STEM.match(file.stem) else file.stem
             store.save_sticker(
                 digest, str(file), ctype=_EXT_CTYPE[file.suffix.lower()],
-                summary="", name=file.stem,
+                summary="", name=name,
             )
+            changed += 1
+            continue
+
+        name = row["name"] or ("" if _HASH_STEM.match(file.stem) else file.stem)
+        target = file
+        if row["name"] and file.stem != row["name"]:
+            candidate = _unique_path(
+                directory, _safe_name(row["name"]) or digest[:16], file.suffix.lower(), digest
+            )
+            if candidate != file and not candidate.exists():
+                try:
+                    file.rename(candidate)
+                    target = candidate
+                except OSError:
+                    target = file
+        store.set_sticker_path_name(row["id"], str(target), name)
         changed += 1
     return changed
 

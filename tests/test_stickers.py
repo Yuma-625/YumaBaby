@@ -282,8 +282,36 @@ class StickerCommandTest(unittest.TestCase):
         from app.stickers import sync_sticker_files
         sync_sticker_files(self.store)
         updated = self.store.get_sticker(sticker["id"])
+        # 数据库里已有名字，同步时把文件改回名字
         self.assertEqual(updated["name"], "奶龙坐")
-        self.assertEqual(updated["path"], str(renamed_path))
+        self.assertEqual(Path(updated["path"]).stem, "奶龙坐")
+        self.assertFalse(renamed_path.exists())
+
+    def test_named_save_uses_name_as_filename(self):
+        asyncio.run(handle_sticker_command(
+            "存这个表情包，命名大狗无语", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        sticker = self.store.list_stickers()[0]
+        self.assertEqual(Path(sticker["path"]).stem, "大狗无语")
+
+    def test_rename_moves_file(self):
+        asyncio.run(handle_sticker_command(
+            "存这个表情包", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        old_path = Path(self.store.list_stickers()[0]["path"])
+        asyncio.run(handle_sticker_command(
+            "存这个表情包，命名新名字", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        new_path = Path(self.store.list_stickers()[0]["path"])
+        self.assertEqual(new_path.stem, "新名字")
+        self.assertFalse(old_path.exists())
+        self.assertTrue(new_path.exists())
 
     def test_send_missing_id(self):
         asyncio.run(save_sticker(
