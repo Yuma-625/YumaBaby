@@ -100,6 +100,17 @@ CREATE TABLE IF NOT EXISTS group_context (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_group_context ON group_context(group_id, id);
+
+CREATE TABLE IF NOT EXISTS stickers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hash TEXT UNIQUE NOT NULL,
+    path TEXT NOT NULL,
+    ctype TEXT DEFAULT '',
+    summary TEXT DEFAULT '',
+    source_group TEXT DEFAULT '',
+    source_user TEXT DEFAULT '',
+    created_at TEXT NOT NULL
+);
 """
 
 _MIGRATIONS = [
@@ -551,6 +562,41 @@ class MemoryStore:
             cur = self._conn.execute("DELETE FROM group_context")
         self._conn.commit()
         return cur.rowcount
+
+    # ------------------------------------------------------------------ 表情库
+
+    def save_sticker(self, file_hash: str, path: str, ctype: str = "",
+                     summary: str = "", source_group: str = "",
+                     source_user: str = "") -> tuple[int, bool]:
+        """返回 (id, 是否新插入)。按内容 hash 去重。"""
+        existing = self._conn.execute(
+            "SELECT id FROM stickers WHERE hash=?", (file_hash,)
+        ).fetchone()
+        if existing:
+            return int(existing["id"]), False
+        cur = self._conn.execute(
+            "INSERT INTO stickers(hash, path, ctype, summary, source_group, source_user, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (file_hash, path, ctype, summary, source_group, source_user, _now()),
+        )
+        self._conn.commit()
+        return int(cur.lastrowid), True
+
+    def get_sticker(self, sticker_id: int) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM stickers WHERE id=?", (sticker_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def count_stickers(self) -> int:
+        row = self._conn.execute("SELECT COUNT(*) AS n FROM stickers").fetchone()
+        return int(row["n"])
+
+    def list_stickers(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM stickers ORDER BY id DESC LIMIT ?", (max(1, limit),)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def has_event_today(self, kind: str) -> bool:
         row = self._conn.execute(

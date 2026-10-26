@@ -31,20 +31,33 @@ async def on_qq_message(message: str, context: dict) -> str:
     group_id = context.get("group_id")
     user_id = str(context.get("user_id") or "unknown")
 
-    # 管理员私聊命令（好评/差评、今日活动），不进 LLM
+    # 管理员命令（好评/差评、今日活动、收藏表情），不进 LLM
     store = shared.memory_store
-    if store is not None and not group_id and settings.QQ_PERSONA_ADMIN == user_id:
-        from app.agent.admin import handle_admin_message
+    if store is not None and settings.QQ_PERSONA_ADMIN == user_id:
+        if not group_id:
+            from app.agent.admin import handle_admin_message
 
-        handled = handle_admin_message(
+            handled = handle_admin_message(
+                message,
+                chat_id=f"user:{user_id}",
+                store=store,
+                reviewer=user_id,
+                reply_to_id=context.get("reply_to_id"),
+            )
+            if handled is not None:
+                return handled
+
+        from app.stickers import handle_sticker_command
+
+        sticker_reply = await handle_sticker_command(
             message,
-            chat_id=f"user:{user_id}",
             store=store,
-            reviewer=user_id,
-            reply_to_id=context.get("reply_to_id"),
+            attachments=context.get("attachments") or [],
+            group_id=group_id,
+            user_id=user_id,
         )
-        if handled is not None:
-            return handled
+        if sticker_reply is not None:
+            return sticker_reply
 
     if group_id:
         return await service.handle(

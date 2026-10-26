@@ -76,6 +76,10 @@ class Settings:
     GROUP_CONTEXT_MAX: int = _env_int("GROUP_CONTEXT_MAX", 50)
     GROUP_CONTEXT_MINUTES: int = _env_int("GROUP_CONTEXT_MINUTES", 30)
     GROUP_CONTEXT_INJECT: int = _env_int("GROUP_CONTEXT_INJECT", 10)
+    # 表情库
+    STICKERS_DIR: str = os.getenv("STICKERS_DIR", str(BASE_DIR / "data" / "stickers"))
+    STICKER_MAX_BYTES: int = _env_int("STICKER_MAX_BYTES", 5_000_000)
+    STICKER_LOOKBACK_MINUTES: int = _env_int("STICKER_LOOKBACK_MINUTES", 10)
     # 连发合并：同一会话在这个窗口内的多条消息合并成一次处理；0 = 关闭
     DEBOUNCE_SECONDS: float = float(os.getenv("DEBOUNCE_SECONDS", "1.5") or 0)
     DEBOUNCE_MAX_CHARS: int = _env_int("DEBOUNCE_MAX_CHARS", 400)
