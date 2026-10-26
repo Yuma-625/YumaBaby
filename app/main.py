@@ -154,6 +154,10 @@ async def lifespan(app: FastAPI):
 
     if settings.AGENT_ENABLED:
         shared.memory_store = MemoryStore(settings.MEMORY_DB)
+        from app.stickers import sync_sticker_files
+        synced = sync_sticker_files(shared.memory_store)
+        if synced:
+            logger.info(f"表情文件同步完成: 扫描 {synced} 个文件")
         registry = build_registry(shared.memory_store)
         agent_loop = AgentLoop(
             registry,

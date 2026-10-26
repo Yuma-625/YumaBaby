@@ -4,13 +4,17 @@
 ContextVar 注入，模型不需要也不允许自己指定 scope。
 """
 
+import base64
+import html as html_lib
 import ipaddress
 import logging
+import re
 import socket
+import time
 from contextvars import ContextVar
 from datetime import datetime
 from html.parser import HTMLParser
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -198,6 +202,87 @@ async def forget(keyword: str, store: MemoryStore) -> dict:
     return {"removed": removed}
 
 
+# --------------------------------------------------------------------- 搜索
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_search_cache: dict[str, tuple[float, list[dict]]] = {}
+_SEARCH_UA = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+}
+
+
+def _clean_text(value: str) -> str:
+    return html_lib.unescape(_TAG_RE.sub("", value or "")).strip()
+
+
+def _unwrap_bing_url(url: str) -> str:
+    if "bing.com/ck/a" not in url:
+        return url
+    query = parse_qs(urlparse(url).query)
+    token = (query.get("u") or [""])[0]
+    if token.startswith("a1"):
+        try:
+            padded = token[2:] + "=" * (-len(token[2:]) % 4)
+            return base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
+        except Exception:
+            return url
+    return url
+
+
+def parse_bing_results(html_text: str, limit: int = 5) -> list[dict]:
+    results = []
+    blocks = re.split(r'<li class="b_algo"', html_text)[1:]
+    for block in blocks:
+        block = block.split("</li>", 1)[0]
+        match = re.search(
+            r'<h2[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', block, re.S
+        )
+        if not match:
+            continue
+        url = _unwrap_bing_url(html_lib.unescape(match.group(1)))
+        title = _clean_text(match.group(2))
+        snippet_match = re.search(r"<p[^>]*>(.*?)</p>", block, re.S)
+        snippet = _clean_text(snippet_match.group(1)) if snippet_match else ""
+        if title and url.startswith("http"):
+            results.append({"title": title, "url": url, "snippet": snippet})
+        if len(results) >= limit:
+            break
+    return results
+
+
+async def web_search(query: str, limit: int = 5) -> dict:
+    """Bing 网页搜索，返回标题/链接/摘要。"""
+    query = (query or "").strip()
+    if not query:
+        raise ValueError("搜索词不能为空")
+    limit = max(1, min(int(limit), 8))
+
+    cache_key = f"{query}|{limit}"
+    cached = _search_cache.get(cache_key)
+    now = time.monotonic()
+    if cached and now - cached[0] < 300:
+        return {"query": query, "cached": True, "results": cached[1]}
+
+    url = "https://www.bing.com/search?" + urlencode(
+        {"q": query, "setlang": "zh-CN", "count": limit}
+    )
+    async with httpx.AsyncClient(
+        timeout=settings.WEB_FETCH_TIMEOUT, follow_redirects=True, headers=_SEARCH_UA
+    ) as client:
+        resp = await client.get(url)
+        if resp.status_code >= 400:
+            raise ValueError(f"搜索失败 HTTP {resp.status_code}")
+        results = parse_bing_results(resp.text, limit)
+
+    if results:
+        _search_cache[cache_key] = (now, results)
+        if len(_search_cache) > 100:
+            _search_cache.clear()
+    return {"query": query, "cached": False, "results": results}
+
+
 def build_registry(store: MemoryStore) -> ToolRegistry:
     """把工具绑定到具体存储实例，避免用模块级全局。"""
 
@@ -230,6 +315,21 @@ def build_registry(store: MemoryStore) -> ToolRegistry:
             "required": ["url"],
         },
         web_fetch,
+        timeout=settings.WEB_FETCH_TIMEOUT + 5,
+    )
+    registry.add(
+        "web_search",
+        "联网搜索网页，返回标题、链接和摘要。用户问新闻、实时信息、"
+        "你不知道或需要最新资料的问题时先调用它，再按需用 web_fetch 读具体页面。",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索关键词"},
+                "limit": {"type": "integer", "description": "返回条数，默认 5，最多 8"},
+            },
+            "required": ["query"],
+        },
+        web_search,
         timeout=settings.WEB_FETCH_TIMEOUT + 5,
     )
     registry.add(

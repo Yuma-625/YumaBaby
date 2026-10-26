@@ -44,7 +44,7 @@ app/
 │  └─ scheduler.py  定时任务（20:00 人设审核；市场简报受开关控制）
 ├─ tools/
 │  ├─ registry.py   工具注册表（JSON Schema + 参数校验 + 超时 + 统一错误包）
-│  └─ builtin.py    时间 / 网页抓取（SSRF 防护）/ 记忆读写
+│  └─ builtin.py    时间 / 网页抓取 / Bing 搜索 / 记忆读写
 ├─ memory/
 │  └─ store.py      SQLite：对话 / 记忆 / 行为日志 / 打分 / 数据集
 ├─ review/
@@ -132,7 +132,7 @@ system + history + user
 | [app/agent/service.py](app/agent/service.py) | 取历史 + 检索记忆 + 跑循环 + 落库 + 记录行为 |
 | [app/agent/context.py](app/agent/context.py) | 人设 + 记忆拼装 system prompt |
 | [app/agent/admin.py](app/agent/admin.py) | 管理员命令：好评/差评、今日活动 |
-| [app/tools/builtin.py](app/tools/builtin.py) | `get_time`、`web_fetch`、`remember`、`recall`、`forget` |
+| [app/tools/builtin.py](app/tools/builtin.py) | `get_time`、`web_search`、`web_fetch`、`remember`、`recall`、`forget` |
 
 记忆的 scope 由代码注入，模型看不到也改不了：
 
@@ -190,6 +190,8 @@ python -m app.review.server
 标记为完成的天会记录在 `review_days` 表，重复提交会覆盖同一天的导出文件。标注台默认只监听 `127.0.0.1`，不对外网开放。
 
 网页抓取带 SSRF 防护：只允许 http/https，解析域名后拒绝私网、回环、链路本地和保留地址，重定向逐跳校验，响应体有大小上限。
+
+联网搜索走 Bing 页面解析（`web_search`），结果缓存 5 分钟；Bing 部分结果页会反爬，模型会如实说明抓不到，而不是编造。
 
 连发合并（M1.5）：同一会话在 `DEBOUNCE_SECONDS` 窗口内的多条消息合并成一次调用。
 

@@ -246,6 +246,45 @@ class StickerCommandTest(unittest.TestCase):
             "发送不存在", store=self.store, user_id="1293585554",
         )))
 
+    def test_manually_renamed_file_is_adopted(self):
+        asyncio.run(save_sticker(
+            self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        sticker = self.store.list_stickers()[0]
+        old_path = Path(sticker["path"])
+        new_path = old_path.parent / "大狗无语.jpg"
+        old_path.rename(new_path)
+
+        from app.stickers import sync_sticker_files
+        sync_sticker_files(self.store)
+
+        updated = self.store.get_sticker(sticker["id"])
+        self.assertEqual(updated["path"], str(new_path))
+        self.assertEqual(updated["name"], "大狗无语")
+
+        reply = asyncio.run(handle_sticker_send(
+            "发送大狗无语", store=self.store, user_id="1293585554",
+        ))
+        self.assertTrue(reply.startswith("[CQ:image"))
+
+    def test_sync_keeps_existing_name(self):
+        asyncio.run(handle_sticker_command(
+            "存这个表情包，命名奶龙坐", store=self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+        ))
+        sticker = self.store.list_stickers()[0]
+        renamed_path = Path(sticker["path"]).parent / "随便.jpg"
+        Path(sticker["path"]).rename(renamed_path)
+
+        from app.stickers import sync_sticker_files
+        sync_sticker_files(self.store)
+        updated = self.store.get_sticker(sticker["id"])
+        self.assertEqual(updated["name"], "奶龙坐")
+        self.assertEqual(updated["path"], str(renamed_path))
+
     def test_send_missing_id(self):
         asyncio.run(save_sticker(
             self.store,

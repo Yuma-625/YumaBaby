@@ -605,6 +605,21 @@ class MemoryStore:
         ).fetchone()
         return dict(row) if row else None
 
+    def update_sticker(self, file_hash: str, path: str, name: str = "") -> int | None:
+        """文件被改名/移动后，按 hash 修正路径和名字。"""
+        row = self._conn.execute(
+            "SELECT id, name FROM stickers WHERE hash=?", (file_hash,)
+        ).fetchone()
+        if row is None:
+            return None
+        new_name = row["name"] or name or ""
+        self._conn.execute(
+            "UPDATE stickers SET path=?, name=? WHERE id=?",
+            (path, new_name, row["id"]),
+        )
+        self._conn.commit()
+        return int(row["id"])
+
     def get_sticker(self, sticker_id: int) -> dict[str, Any] | None:
         row = self._conn.execute(
             "SELECT * FROM stickers WHERE id=?", (sticker_id,)

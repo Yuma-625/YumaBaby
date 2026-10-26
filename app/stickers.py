@@ -226,6 +226,47 @@ def _build_image_cq(sticker: dict) -> str | None:
     return "[CQ:image,file=base64://" + base64.b64encode(data).decode() + "]"
 
 
+_EXT_CTYPE = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+def sync_sticker_files(store: MemoryStore) -> int:
+    """扫描表情目录：文件被手动改名/移动后，按内容 hash 修正数据库。
+
+    - 已有记录：更新 path；名字为空时用文件名补上
+    - 没有记录的新文件：直接收录，名字取文件名
+    """
+    directory = Path(settings.STICKERS_DIR)
+    if not directory.exists():
+        return 0
+
+    changed = 0
+    for file in directory.iterdir():
+        if not file.is_file() or file.suffix.lower() not in _EXT_CTYPE:
+            continue
+        try:
+            data = file.read_bytes()
+        except OSError:
+            continue
+        digest = hashlib.sha1(data).hexdigest()
+        if store.update_sticker(digest, str(file), name=file.stem) is None:
+            store.save_sticker(
+                digest, str(file), ctype=_EXT_CTYPE[file.suffix.lower()],
+                summary="", name=file.stem,
+            )
+        changed += 1
+    return changed
+
+
+def _files_missing(store: MemoryStore) -> bool:
+    return any(not Path(row["path"]).exists() for row in store.list_stickers(200))
+
+
 async def handle_sticker_send(
     text: str,
     *,
@@ -235,6 +276,10 @@ async def handle_sticker_send(
     """管理员发表情：`发 3 号表情` / `发送大狗无语` / `发出来 3 个` / 随机。"""
     if user_id != settings.QQ_PERSONA_ADMIN:
         return None
+
+    if _files_missing(store):
+        logger.info("检测到表情文件缺失或改名，执行同步")
+        sync_sticker_files(store)
 
     total = store.count_stickers()
     if total == 0:

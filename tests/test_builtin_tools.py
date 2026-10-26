@@ -8,6 +8,7 @@ from app.tools.builtin import (
     build_registry,
     check_url,
     extract_text,
+    parse_bing_results,
     reset_scope,
     set_scope,
 )
@@ -45,6 +46,34 @@ class HtmlExtractTest(unittest.TestCase):
     def test_keeps_paragraph_breaks(self):
         text = extract_text("<p>第一段</p><p>第二段</p>")
         self.assertEqual(text, "第一段\n第二段")
+
+
+class BingParseTest(unittest.TestCase):
+    HTML = """
+    <ol id="b_results">
+      <li class="b_algo">
+        <h2><a href="https://example.com/a">第一条标题</a></h2>
+        <div class="b_caption"><p>第一条摘要内容</p></div>
+      </li>
+      <li class="b_algo">
+        <h2><a href="https://example.com/b">第二条标题</a></h2>
+        <p>第二条摘要</p>
+      </li>
+    </ol>
+    """
+
+    def test_parses_title_url_snippet(self):
+        results = parse_bing_results(self.HTML, limit=5)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["title"], "第一条标题")
+        self.assertEqual(results[0]["url"], "https://example.com/a")
+        self.assertIn("第一条摘要", results[0]["snippet"])
+
+    def test_respects_limit(self):
+        self.assertEqual(len(parse_bing_results(self.HTML, limit=1)), 1)
+
+    def test_empty_page(self):
+        self.assertEqual(parse_bing_results("<html></html>"), [])
 
 
 class MemoryToolsTest(unittest.TestCase):
