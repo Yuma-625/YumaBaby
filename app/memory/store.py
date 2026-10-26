@@ -605,6 +605,20 @@ class MemoryStore:
         ).fetchone()
         return row is not None
 
+    def count_events_today(self, kind: str, chat_id: str | None = None) -> int:
+        if chat_id is None:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM events WHERE kind=? AND substr(created_at,1,10)=?",
+                (kind, _today()),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM events WHERE kind=? AND chat_id=? "
+                "AND substr(created_at,1,10)=?",
+                (kind, chat_id, _today()),
+            ).fetchone()
+        return int(row["n"])
+
     # ------------------------------------------------------------------ 日报
 
     def daily_summary(self, day: str | None = None) -> dict[str, Any]:

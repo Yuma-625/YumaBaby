@@ -67,6 +67,10 @@ async def handle_summary_command(
     if now - _last_run.get(group_id, 0.0) < settings.SUMMARY_COOLDOWN_SECONDS:
         return "刚总结过，过一会儿再来吧。"
 
+    used_today = store.count_events_today("summary", group_id)
+    if used_today >= settings.SUMMARY_DAILY_LIMIT:
+        return f"这个群今天已经总结 {used_today} 次了，明天再来吧。"
+
     count = parse_count(text)
     entries = store.recent_group_context(group_id, limit=count, minutes=24 * 60)
     if len(entries) < 5:

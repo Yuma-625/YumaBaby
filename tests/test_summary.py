@@ -14,10 +14,11 @@ class SummaryCommandTest(unittest.TestCase):
         self.store = MemoryStore(Path(self.tmp.name) / "m.db")
         self._patches = [
             patch.object(settings, "QQ_PERSONA_ADMIN", "1293585554"),
-            patch.object(settings, "SUMMARY_ADMIN_ONLY", True),
+            patch.object(settings, "SUMMARY_ADMIN_ONLY", False),
             patch.object(settings, "SUMMARY_DEFAULT_COUNT", 50),
             patch.object(settings, "SUMMARY_MAX_COUNT", 120),
-            patch.object(settings, "SUMMARY_COOLDOWN_SECONDS", 120),
+            patch.object(settings, "SUMMARY_COOLDOWN_SECONDS", 600),
+            patch.object(settings, "SUMMARY_DAILY_LIMIT", 10),
         ]
         for p in self._patches:
             p.start()
@@ -61,8 +62,20 @@ class SummaryCommandTest(unittest.TestCase):
         self.assertIn("群友0: 消息0", captured["prompt"])
         self.assertIn("群聊记录整理助手", captured["system"])
 
-    def test_non_admin_ignored(self):
-        with patch("app.summary.llm_chat") as fake:
+    def test_anyone_can_summarize(self):
+        async def fake_chat(*args, **kwargs):
+            return "总结结果"
+
+        with patch("app.summary.llm_chat", fake_chat):
+            reply = asyncio_run(handle_summary_command(
+                "总结最近10条群聊", store=self.store,
+                group_id="100", user_id="12345",
+            ))
+        self.assertIn("总结结果", reply)
+
+    def test_admin_only_mode_blocks_others(self):
+        with patch.object(settings, "SUMMARY_ADMIN_ONLY", True), \
+             patch("app.summary.llm_chat") as fake:
             reply = asyncio_run(handle_summary_command(
                 "总结最近10条群聊", store=self.store,
                 group_id="100", user_id="12345",
@@ -96,6 +109,25 @@ class SummaryCommandTest(unittest.TestCase):
             ))
         self.assertIn("总结结果", first)
         self.assertIn("刚总结过", second)
+
+    def test_daily_limit(self):
+        async def fake_chat(*args, **kwargs):
+            return "总结结果"
+
+        with patch.object(settings, "SUMMARY_COOLDOWN_SECONDS", 0), \
+             patch.object(settings, "SUMMARY_DAILY_LIMIT", 2), \
+             patch("app.summary.llm_chat", fake_chat):
+            for _ in range(2):
+                reply = asyncio_run(handle_summary_command(
+                    "总结最近10条群聊", store=self.store,
+                    group_id="100", user_id="1293585554",
+                ))
+                self.assertIn("总结结果", reply)
+            third = asyncio_run(handle_summary_command(
+                "总结最近10条群聊", store=self.store,
+                group_id="100", user_id="1293585554",
+            ))
+        self.assertIn("今天已经总结 2 次", third)
 
 
 def asyncio_run(coro):

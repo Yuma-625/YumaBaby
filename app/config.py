@@ -77,10 +77,11 @@ class Settings:
     GROUP_CONTEXT_MINUTES: int = _env_int("GROUP_CONTEXT_MINUTES", 30)
     GROUP_CONTEXT_INJECT: int = _env_int("GROUP_CONTEXT_INJECT", 10)
     # 群聊总结
-    SUMMARY_ADMIN_ONLY: bool = _env_bool("SUMMARY_ADMIN_ONLY", True)
+    SUMMARY_ADMIN_ONLY: bool = _env_bool("SUMMARY_ADMIN_ONLY", False)
     SUMMARY_DEFAULT_COUNT: int = _env_int("SUMMARY_DEFAULT_COUNT", 50)
     SUMMARY_MAX_COUNT: int = _env_int("SUMMARY_MAX_COUNT", 120)
-    SUMMARY_COOLDOWN_SECONDS: int = _env_int("SUMMARY_COOLDOWN_SECONDS", 120)
+    SUMMARY_COOLDOWN_SECONDS: int = _env_int("SUMMARY_COOLDOWN_SECONDS", 600)
+    SUMMARY_DAILY_LIMIT: int = _env_int("SUMMARY_DAILY_LIMIT", 10)
     # 表情库
     STICKERS_DIR: str = os.getenv("STICKERS_DIR", str(BASE_DIR / "data" / "stickers"))
     STICKER_MAX_BYTES: int = _env_int("STICKER_MAX_BYTES", 5_000_000)

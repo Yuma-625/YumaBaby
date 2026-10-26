@@ -242,8 +242,9 @@ python -m app.review.server
 - 条数默认 `SUMMARY_DEFAULT_COUNT`，范围 5–`SUMMARY_MAX_COUNT`（默认 120）
 - 数据来自 `group_context` 滚动缓冲（每群 `GROUP_CONTEXT_MAX` 条），不需要提前导出
 - 输出 2–4 点：主要话题、结论/决定、待跟进事项，控制在 200 字内
-- 同一群 `SUMMARY_COOLDOWN_SECONDS` 内只能总结一次，避免刷屏
-- `SUMMARY_ADMIN_ONLY=false` 可开放给所有人
+- 同一群 `SUMMARY_COOLDOWN_SECONDS`（默认 600 秒）内只能总结一次
+- 每个群每天最多 `SUMMARY_DAILY_LIMIT`（默认 10）次
+- 默认所有人可用；`SUMMARY_ADMIN_ONLY=true` 可收回给管理员
 
 ### 表情收藏（仅管理员）
 

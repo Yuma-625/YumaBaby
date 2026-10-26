@@ -113,6 +113,14 @@ class MemoryStoreTest(unittest.TestCase):
         self.assertEqual(self.store.clear_group_context("100"), 1)
         self.assertEqual(self.store.recent_group_context("100"), [])
 
+    def test_count_events_today_by_chat(self):
+        self.store.add_event("summary", "group", "100")
+        self.store.add_event("summary", "group", "100")
+        self.store.add_event("summary", "group", "200")
+        self.assertEqual(self.store.count_events_today("summary", "100"), 2)
+        self.assertEqual(self.store.count_events_today("summary", "200"), 1)
+        self.assertEqual(self.store.count_events_today("summary"), 3)
+
     def test_usage_count_increases(self):
         self.store.remember("user", "1", "重要的事")
         self.store.recall("user", "1", "重要")
