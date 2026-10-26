@@ -297,7 +297,9 @@ class QQAdapter(BaseAdapter):
                 future.set_result(data)
             return
 
-        await self._handle_event(data)
+        # 事件处理放后台，保证读循环能继续接收 API 回包
+        # （否则 _call_api 等待的响应永远读不到，会死锁到超时）
+        self._spawn(self._handle_event(data))
 
     async def _handle_event(self, data: dict):
         """处理收到的事件, 分发群消息和私聊消息"""

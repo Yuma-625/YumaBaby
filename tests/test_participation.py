@@ -132,6 +132,18 @@ class AutoParticipationTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("动画表情", text)
         self.assertEqual(attachments[0]["type"], "image")
 
+    async def test_event_dispatch_does_not_block_reader(self):
+        """_dispatch_raw 必须立即返回，否则 get_msg 回包读不到。"""
+        async def slow_handler(data):
+            await asyncio.sleep(0.3)
+
+        self.adapter._handle_event = slow_handler
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await self.adapter._dispatch_raw('{"post_type": "message", "message_type": "group"}')
+        self.assertLess(loop.time() - started, 0.1)
+        await asyncio.sleep(0)
+
     async def test_resolve_at_names_and_cache(self):
         calls = []
 
