@@ -197,6 +197,23 @@ python -m app.review.server
 - `DEBOUNCE_SECONDS=0` 关闭该行为
 - 适配器停止时取消所有待处理缓冲
 
+### 记忆权重与维护
+
+- 每条记忆带 `weight`：工具写入（用户明确要求记住）1.5，普通 1.0
+- 召回分数 = `weight × exp(-年龄天数 / MEMORY_DECAY_DAYS)`，关键词命中再 ×1.8
+- 每天 04:30 清理：衰减后低于 0.05 且超过 180 天的删除，每个 scope 截到 `MEMORY_MAX_PER_SCOPE`
+
+### 群聊自动旁听
+
+在 `QQ_PARTICIPATION_GROUPS` 里的群：
+
+- **@ 或关键词 → 必定回复**（不走概率）
+- 其他消息按 `PARTICIPATION_RATE` 抽样（问句概率翻倍），并受 `PARTICIPATION_COOLDOWN_SECONDS` 冷却
+- 被抽中的消息交给模型，模型可以选择**不接话**（输出 `[SKIP]`，不发送也不入库）
+- 接话与跳过都会写 `events`，方便回看它为什么开口
+
+主动消息也收紧了：人设总结只在**有待审规则**、**最近 10 分钟没有对话**、**当天未推送**时才发。
+
 关闭 Agent 回退旧行为：`AGENT_ENABLED=false`。
 
 ## 配置项
@@ -219,6 +236,11 @@ python -m app.review.server
 | `QQ_PERSONA_ADMIN` | 空 | 管理员 QQ；为空则私聊与审核流程关闭 |
 | `QQ_PRIVATE_WHITELIST` | 空 | 允许私聊的用户，逗号分隔；管理员始终允许 |
 | `GROUP_TRIGGER_MODE` | mention_or_keyword | 群里响应方式：`mention` / `keyword` / `mention_or_keyword` / `all` |
+| `QQ_PARTICIPATION_GROUPS` | 空 | 允许自动旁听接话的群；@/关键词仍必定回复 |
+| `PARTICIPATION_RATE` | 0.15 | 旁听消息进入模型的概率（问句翻倍），0 关闭 |
+| `PARTICIPATION_COOLDOWN_SECONDS` | 120 | 同一群两次自动接话的最小间隔 |
+| `MEMORY_DECAY_DAYS` | 30 | 记忆权重衰减时间常数（天） |
+| `MEMORY_MAX_PER_SCOPE` | 200 | 每个用户/群保留的记忆上限 |
 | `DEBOUNCE_SECONDS` | 1.5 | 连发合并窗口；0 表示关闭（每条立即处理） |
 | `DEBOUNCE_MAX_CHARS` | 400 | 合并文本超过这个长度立即处理 |
 | `DEBOUNCE_MAX_MESSAGES` | 5 | 合并条数达到即立即处理 |

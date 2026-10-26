@@ -10,7 +10,9 @@
 
 import json
 import logging
+import math
 import sqlite3
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -90,6 +92,7 @@ CREATE TABLE IF NOT EXISTS review_days (
 
 _MIGRATIONS = [
     ("messages", "platform_message_id", "TEXT"),
+    ("memories", "weight", "REAL DEFAULT 1.0"),
 ]
 
 
@@ -333,8 +336,9 @@ class MemoryStore:
 
         cur = self._conn.execute(
             "INSERT INTO memories(scope_type, scope_id, text, source, confidence, "
-            "status, created_at) VALUES (?, ?, ?, ?, ?, 'active', ?)",
-            (scope_type, scope_id, text, source, confidence, _now()),
+            "status, weight, created_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
+            (scope_type, scope_id, text, source, confidence,
+             1.5 if source == "tool" else 1.0, _now()),
         )
         self._conn.commit()
         return int(cur.lastrowid)
@@ -347,43 +351,52 @@ class MemoryStore:
         *,
         limit: int = 5,
     ) -> list[dict[str, Any]]:
+        """按「权重 × 时间衰减 × 关键词加成」排序，而不是单纯按时间。"""
         if limit <= 0:
             return []
         limit = min(limit, 50)
 
-        if query.strip():
-            pattern = "%" + query.strip().replace("%", r"\%").replace("_", r"\_") + "%"
-            rows = self._conn.execute(
-                "SELECT id, text, source, created_at, use_count FROM memories "
-                "WHERE scope_type=? AND scope_id=? AND status='active' AND text LIKE ? ESCAPE '\\' "
-                "ORDER BY created_at DESC LIMIT ?",
-                (scope_type, scope_id, pattern, limit),
-            ).fetchall()
-            if not rows:
-                rows = self._conn.execute(
-                    "SELECT id, text, source, created_at, use_count FROM memories "
-                    "WHERE scope_type=? AND scope_id=? AND status='active' "
-                    "ORDER BY created_at DESC LIMIT ?",
-                    (scope_type, scope_id, limit),
-                ).fetchall()
-        else:
-            rows = self._conn.execute(
-                "SELECT id, text, source, created_at, use_count FROM memories "
-                "WHERE scope_type=? AND scope_id=? AND status='active' "
-                "ORDER BY created_at DESC LIMIT ?",
-                (scope_type, scope_id, limit),
-            ).fetchall()
+        rows = self._conn.execute(
+            "SELECT id, text, source, created_at, use_count, weight FROM memories "
+            "WHERE scope_type=? AND scope_id=? AND status='active' "
+            "ORDER BY id DESC LIMIT 500",
+            (scope_type, scope_id),
+        ).fetchall()
+        if not rows:
+            return []
 
-        result = [dict(r) for r in rows]
-        if result:
-            ids = [r["id"] for r in result]
-            placeholders = ",".join("?" for _ in ids)
-            self._conn.execute(
-                f"UPDATE memories SET last_used_at=?, use_count=use_count+1 "
-                f"WHERE id IN ({placeholders})",
-                (_now(), *ids),
+        try:
+            tz = ZoneInfo(settings.TIMEZONE)
+        except Exception:
+            tz = ZoneInfo("UTC")
+        now = datetime.now(tz)
+        needle = query.strip().lower()
+
+        scored: list[tuple[float, sqlite3.Row]] = []
+        for row in rows:
+            try:
+                created = datetime.fromisoformat(row["created_at"])
+                age_days = max(0.0, (now - created).total_seconds() / 86400)
+            except (TypeError, ValueError):
+                age_days = 0.0
+            score = float(row["weight"] or 1.0) * math.exp(
+                -age_days / max(1, settings.MEMORY_DECAY_DAYS)
             )
-            self._conn.commit()
+            if needle and needle in (row["text"] or "").lower():
+                score *= 1.8
+            scored.append((score, row))
+
+        scored.sort(key=lambda item: (-item[0], -item[1]["id"]))
+        result = [dict(row) for _, row in scored[:limit]]
+
+        ids = [r["id"] for r in result]
+        placeholders = ",".join("?" for _ in ids)
+        self._conn.execute(
+            f"UPDATE memories SET last_used_at=?, use_count=use_count+1 "
+            f"WHERE id IN ({placeholders})",
+            (_now(), *ids),
+        )
+        self._conn.commit()
         return result
 
     def forget(self, scope_type: str, scope_id: str, keyword: str = "") -> int:
@@ -413,6 +426,61 @@ class MemoryStore:
                 "SELECT COUNT(*) AS n FROM memories WHERE status='active'"
             ).fetchone()
         return int(row["n"])
+
+    def prune_memories(self, *, max_per_scope: int | None = None,
+                       min_effective: float = 0.05, max_age_days: int = 180) -> int:
+        """删除长期低权重记忆，并把每个 scope 截到上限。返回删除条数。"""
+        max_per_scope = max_per_scope or settings.MEMORY_MAX_PER_SCOPE
+        rows = self._conn.execute(
+            "SELECT id, scope_type, scope_id, created_at, weight FROM memories WHERE status='active'"
+        ).fetchall()
+
+        try:
+            tz = ZoneInfo(settings.TIMEZONE)
+        except Exception:
+            tz = ZoneInfo("UTC")
+        now = datetime.now(tz)
+
+        keep: dict[tuple[str, str], list[tuple[float, int]]] = defaultdict(list)
+        delete_ids: list[int] = []
+        for row in rows:
+            try:
+                created = datetime.fromisoformat(row["created_at"])
+                age_days = max(0.0, (now - created).total_seconds() / 86400)
+            except (TypeError, ValueError):
+                age_days = 0.0
+            score = float(row["weight"] or 1.0) * math.exp(
+                -age_days / max(1, settings.MEMORY_DECAY_DAYS)
+            )
+            if score < min_effective and age_days > max_age_days:
+                delete_ids.append(row["id"])
+            else:
+                keep[(row["scope_type"], row["scope_id"])].append((score, row["id"]))
+
+        for items in keep.values():
+            items.sort(reverse=True)
+            delete_ids.extend(mid for _, mid in items[max_per_scope:])
+
+        if delete_ids:
+            placeholders = ",".join("?" for _ in delete_ids)
+            self._conn.execute(f"DELETE FROM memories WHERE id IN ({placeholders})", delete_ids)
+            self._conn.commit()
+        return len(delete_ids)
+
+    # ------------------------------------------------------------------ 活动辅助
+
+    def last_activity_at(self) -> str | None:
+        row = self._conn.execute(
+            "SELECT created_at FROM messages ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return row["created_at"] if row else None
+
+    def has_event_today(self, kind: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM events WHERE kind=? AND substr(created_at,1,10)=? LIMIT 1",
+            (kind, _today()),
+        ).fetchone()
+        return row is not None
 
     # ------------------------------------------------------------------ 日报
 

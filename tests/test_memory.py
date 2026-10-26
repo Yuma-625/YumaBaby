@@ -57,6 +57,37 @@ class MemoryStoreTest(unittest.TestCase):
         self.assertEqual(self.store.clear_messages("group:1"), 5)
         self.assertEqual(self.store.recent_messages("group:1"), [])
 
+    def test_recall_prefers_higher_weight(self):
+        self.store.remember("user", "1", "普通偏好")
+        self.store.remember("user", "1", "明确要求记住的偏好", source="tool")
+        items = self.store.recall("user", "1", "", limit=2)
+        self.assertEqual(items[0]["text"], "明确要求记住的偏好")
+
+    def test_prune_removes_very_old_low_weight(self):
+        self.store.remember("user", "1", "陈旧记忆")
+        self.store._conn.execute(
+            "UPDATE memories SET weight=0.01, created_at='2025-01-01T00:00:00+08:00'"
+        )
+        self.store._conn.commit()
+        removed = self.store.prune_memories(min_effective=0.05, max_age_days=180)
+        self.assertEqual(removed, 1)
+        self.assertEqual(self.store.count_memories(), 0)
+
+    def test_prune_caps_per_scope(self):
+        for i in range(5):
+            self.store.remember("user", "1", f"记忆{i}", source="tool")
+        removed = self.store.prune_memories(max_per_scope=2)
+        self.assertEqual(removed, 3)
+        self.assertEqual(self.store.count_memories("user", "1"), 2)
+
+    def test_last_activity_and_event_today(self):
+        self.assertIsNone(self.store.last_activity_at())
+        self.store.save_message("user:1", "user", "hi")
+        self.assertIsNotNone(self.store.last_activity_at())
+        self.assertFalse(self.store.has_event_today("persona_push"))
+        self.store.add_event("persona_push", "admin")
+        self.assertTrue(self.store.has_event_today("persona_push"))
+
     def test_usage_count_increases(self):
         self.store.remember("user", "1", "重要的事")
         self.store.recall("user", "1", "重要")

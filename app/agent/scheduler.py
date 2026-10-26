@@ -44,7 +44,7 @@ class ScheduledTasks:
         await shared.qq_adapter.broadcast_to_groups(summary)
 
     async def push_persona_summary(self):
-        """每日推送人设变更建议给管理员；没有待审核项时不打扰。"""
+        """推送人设变更建议：有待审项、不在对话中、每天最多一次。"""
         from app import shared
         from app.utils.persona import persona_manager
 
@@ -58,10 +58,46 @@ class ScheduledTasks:
             logger.warning("QQ 适配器未就绪，跳过人设总结")
             return
 
+        store = shared.memory_store
+        if store is not None:
+            if store.has_event_today("persona_push"):
+                logger.info("今日已推送过人设总结，跳过")
+                return
+            last = store.last_activity_at()
+            if last:
+                try:
+                    from datetime import datetime
+                    last_dt = datetime.fromisoformat(last)
+                    from zoneinfo import ZoneInfo
+                    now = datetime.now(ZoneInfo(settings.TIMEZONE))
+                    if (now - last_dt).total_seconds() < 600:
+                        logger.info("刚刚还有对话，暂不打扰")
+                        return
+                except (TypeError, ValueError):
+                    pass
+
         summary = persona_manager.get_pending_summary()
         shared.qq_adapter.begin_awaiting_feedback()
         await shared.qq_adapter.send_private_msg(settings.QQ_PERSONA_ADMIN, summary)
+        if store is not None:
+            store.add_event("persona_push", "admin", f"user:{settings.QQ_PERSONA_ADMIN}",
+                            {"pending": persona_manager.pending_count})
         logger.info("人设总结已发送给管理员")
+
+    async def memory_maintenance(self):
+        """每天清理低权重/超量记忆，避免检索被旧数据淹没。"""
+        from app import shared
+
+        store = shared.memory_store
+        if store is None:
+            return
+        try:
+            before = store.count_memories()
+            removed = store.prune_memories()
+            logger.info(f"记忆维护：{before} -> {before - removed}（删除 {removed} 条）")
+            store.add_event("memory_prune", "maintenance", "", {"removed": removed})
+        except Exception:
+            logger.exception("记忆维护失败")
 
 
 tasks = ScheduledTasks()
@@ -104,6 +140,15 @@ def start_scheduler():
         hour=20,
         minute=0,
         id="persona_summary",
+        replace_existing=True,
+        **JOB_DEFAULTS,
+    )
+    scheduler.add_job(
+        tasks.memory_maintenance,
+        "cron",
+        hour=4,
+        minute=30,
+        id="memory_maintenance",
         replace_existing=True,
         **JOB_DEFAULTS,
     )

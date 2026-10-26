@@ -114,6 +114,24 @@ class AgentServiceTest(unittest.TestCase):
         self.assertIn("功能列表", reply)
         self.assertEqual(llm.messages_seen, [])
 
+    def test_auto_participation_can_skip(self):
+        service, _ = self.make_service([answer("[SKIP]")])
+        reply = asyncio.run(service.handle(
+            "群里随便聊聊", chat_id="group:1", scope_type="group", scope_id="1",
+            auto_participate=True,
+        ))
+        self.assertEqual(reply, "")
+        self.assertEqual(self.store.recent_messages("group:1"), [])
+
+    def test_auto_participation_reply_is_saved(self):
+        service, _ = self.make_service([answer("这句我接")])
+        reply = asyncio.run(service.handle(
+            "群里随便聊聊", chat_id="group:1", scope_type="group", scope_id="1",
+            auto_participate=True,
+        ))
+        self.assertEqual(reply, "这句我接")
+        self.assertEqual(len(self.store.recent_messages("group:1")), 2)
+
     def test_normalize_reply(self):
         self.assertEqual(normalize_reply("第一句。\n\n第二句。"), "第一句。 第二句。")
         self.assertEqual(normalize_reply("  a \n\t b  "), "a b")

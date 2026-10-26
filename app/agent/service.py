@@ -45,6 +45,7 @@ class AgentService:
         chat_id: str,
         scope_type: str,
         scope_id: str,
+        auto_participate: bool = False,
     ) -> str:
         text = (text or "").strip()
         if not text:
@@ -65,17 +66,30 @@ class AgentService:
             )
 
         system_prompt = build_system_prompt(self.persona.get_system_prompt(), memories)
+        if auto_participate:
+            system_prompt += (
+                "\n\n这是群里别人的聊天，你在旁听。只有确实有想说的、能自然接上话时才开口；"
+                "不想接就只输出 [SKIP]，不要解释。"
+            )
         token = set_scope((scope_type, scope_id))
         try:
             result = await self.loop.run(text, system_prompt=system_prompt, history=history)
         finally:
             reset_scope(token)
 
+        reply = normalize_reply(result.reply)
+        if auto_participate and reply.upper() in ("[SKIP]", "SKIP", "（跳过）", "跳过"):
+            logger.info("群聊旁听：模型选择不接话 chat=%s", chat_id)
+            try:
+                self.store.add_event("skip", "auto", chat_id, {"text": text[:80]})
+            except Exception:
+                logger.exception("记录 skip 事件失败")
+            return ""
+
         logger.info(
             "agent done: stopped=%s steps=%d tools=%d chat=%s",
             result.stopped, result.steps, len(result.trace), chat_id,
         )
-        reply = normalize_reply(result.reply)
         self._save(chat_id, text, reply)
         self._log_events(chat_id, result)
         self._maybe_learn(text, reply)

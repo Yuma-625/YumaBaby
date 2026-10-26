@@ -67,6 +67,10 @@ class Settings:
     QQ_PRIVATE_WHITELIST: list[str] = _env_list("QQ_PRIVATE_WHITELIST")
     # 群里什么时候响应：mention | keyword | mention_or_keyword | all
     GROUP_TRIGGER_MODE: str = os.getenv("GROUP_TRIGGER_MODE", "mention_or_keyword").strip().lower()
+    # 自动旁听接话的群（@ 与关键词仍必定回复）
+    QQ_PARTICIPATION_GROUPS: list[str] = _env_list("QQ_PARTICIPATION_GROUPS")
+    PARTICIPATION_RATE: float = float(os.getenv("PARTICIPATION_RATE", "0.15") or 0)
+    PARTICIPATION_COOLDOWN_SECONDS: int = _env_int("PARTICIPATION_COOLDOWN_SECONDS", 120)
     # 连发合并：同一会话在这个窗口内的多条消息合并成一次处理；0 = 关闭
     DEBOUNCE_SECONDS: float = float(os.getenv("DEBOUNCE_SECONDS", "1.5") or 0)
     DEBOUNCE_MAX_CHARS: int = _env_int("DEBOUNCE_MAX_CHARS", 400)
@@ -78,6 +82,8 @@ class Settings:
     AGENT_MAX_TOKENS: int = _env_int("AGENT_MAX_TOKENS", 300)
     AGENT_HISTORY_TURNS: int = _env_int("AGENT_HISTORY_TURNS", 8)
     AGENT_MEMORY_LIMIT: int = _env_int("AGENT_MEMORY_LIMIT", 5)
+    MEMORY_DECAY_DAYS: int = _env_int("MEMORY_DECAY_DAYS", 30)
+    MEMORY_MAX_PER_SCOPE: int = _env_int("MEMORY_MAX_PER_SCOPE", 200)
     MEMORY_DB: str = os.getenv("MEMORY_DB", str(BASE_DIR / "data" / "memory.db"))
     DATASETS_DIR: str = os.getenv("DATASETS_DIR", str(BASE_DIR / "data" / "datasets"))
     REVIEW_HOST: str = os.getenv("REVIEW_HOST", "127.0.0.1")

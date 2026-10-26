@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import random
 import re
 import uuid
 from contextlib import suppress
@@ -49,6 +50,7 @@ class _PendingChat:
     group_id: str | None = None
     user_id: str | None = None
     reply_to: str | None = None
+    auto: bool = False
 
 
 class QQAdapter(BaseAdapter):
@@ -77,6 +79,7 @@ class QQAdapter(BaseAdapter):
         self._awaiting_feedback = False
         self._awaiting_since = 0.0
         self._pending: dict[str, _PendingChat] = {}
+        self._last_auto_reply: dict[str, float] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -214,15 +217,36 @@ class QQAdapter(BaseAdapter):
 
         # 已经在这个会话的合并窗口里时，后续碎片消息不再要求触发词
         active = self._pending_key(group_id, user_id) in self._pending
+        auto = False
         if not active and not self._is_group_triggered(raw_message, text):
-            return
+            if not self._should_auto_participate(group_id, text):
+                return
+            auto = True
+            # 先记冷却再入队，避免连发消息在任务完成前绕过节流
+            self._last_auto_reply[group_id] = asyncio.get_running_loop().time()
 
         text = self._truncate(text)
         if not text:
             return
         if self.on_message:
             self._enqueue(text, group_id=group_id, user_id=user_id,
-                          reply_to=extract_reply_id(raw_message))
+                          reply_to=extract_reply_id(raw_message), auto=auto)
+
+    def _should_auto_participate(self, group_id: str, text: str) -> bool:
+        """白名单群里的旁听接话：概率触发 + 冷却，@/关键词不经过这里。"""
+        if group_id not in settings.QQ_PARTICIPATION_GROUPS:
+            return False
+        if settings.PARTICIPATION_RATE <= 0 or len(text) < 4:
+            return False
+
+        now = asyncio.get_running_loop().time()
+        if now - self._last_auto_reply.get(group_id, 0.0) < settings.PARTICIPATION_COOLDOWN_SECONDS:
+            return False
+
+        rate = settings.PARTICIPATION_RATE
+        if "?" in text or "？" in text or "吗" in text:
+            rate = min(1.0, rate * 2)
+        return random.random() < rate
 
     def _is_group_triggered(self, raw_message: str, text: str) -> bool:
         """按 GROUP_TRIGGER_MODE 判断群里这条消息要不要回应。"""
@@ -279,14 +303,15 @@ class QQAdapter(BaseAdapter):
         return f"group:{group_id}:{user_id}" if group_id else f"user:{user_id}"
 
     def _enqueue(self, text: str, *, group_id: str | None = None,
-                 user_id: str | None = None, reply_to: str | None = None) -> None:
+                 user_id: str | None = None, reply_to: str | None = None,
+                 auto: bool = False) -> None:
         """把消息放进对应会话的缓冲，窗口结束后合并处理。
 
         DEBOUNCE_SECONDS<=0 时退化为立即处理。
         """
         if settings.DEBOUNCE_SECONDS <= 0:
             coro = (
-                self._process_and_reply(group_id, user_id or "", text, reply_to)
+                self._process_and_reply(group_id, user_id or "", text, reply_to, auto)
                 if group_id
                 else self._process_private_reply(user_id or "", text, reply_to)
             )
@@ -296,8 +321,11 @@ class QQAdapter(BaseAdapter):
         key = self._pending_key(group_id, user_id)
         entry = self._pending.get(key)
         if entry is None:
-            entry = _PendingChat(group_id=group_id, user_id=user_id)
+            entry = _PendingChat(group_id=group_id, user_id=user_id, auto=auto)
             self._pending[key] = entry
+        else:
+            # 只要中间有一条是「被叫到」，整组就按必定回复处理
+            entry.auto = entry.auto and auto
 
         entry.texts.append(text)
         if reply_to:
@@ -331,7 +359,9 @@ class QQAdapter(BaseAdapter):
             return
         logger.debug(f"合并 {len(entry.texts)} 条消息后处理: {text[:60]}")
         if entry.group_id:
-            await self._process_and_reply(entry.group_id, entry.user_id or "", text, entry.reply_to)
+            await self._process_and_reply(
+                entry.group_id, entry.user_id or "", text, entry.reply_to, entry.auto
+            )
         else:
             await self._process_private_reply(entry.user_id or "", text, entry.reply_to)
 
@@ -364,11 +394,12 @@ class QQAdapter(BaseAdapter):
     # ------------------------------------------------------------------ 发消息
 
     async def _process_and_reply(self, group_id: str, user_id: str, text: str,
-                                 reply_to: str | None = None):
+                                 reply_to: str | None = None, auto: bool = False):
         result = await self.on_message(text, {
             "group_id": group_id,
             "user_id": user_id,
             "reply_to_id": reply_to,
+            "auto_participate": auto,
         })
         if result:
             response = await self.send_group_msg(group_id, result)
