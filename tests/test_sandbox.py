@@ -112,6 +112,19 @@ class SandboxRegistryTest(unittest.TestCase):
         names = [item["function"]["name"] for item in self.registry.schemas(allowed={"fs_read"})]
         self.assertEqual(names, ["fs_read"])
 
+    def test_write_via_registry_uses_path_argument(self):
+        import json
+
+        result = asyncio.run(self.registry.run(
+            "fs_write",
+            json.dumps({"path": "notes/a.md", "content": "hello"}, ensure_ascii=False),
+            allowed={"fs_write"},
+        ))
+        self.assertTrue(result.ok, result.error)
+        self.assertEqual(
+            read_file("notes/a.md")["content"], "hello"
+        )
+
     def test_disallowed_tool_is_rejected(self):
         result = asyncio.run(
             self.registry.run("fs_write", '{"path": "a.txt", "content": "x"}',

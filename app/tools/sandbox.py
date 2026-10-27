@@ -59,8 +59,8 @@ def _audit(store: MemoryStore | None, tool: str, detail: dict[str, Any], ok: boo
         logger.debug("沙箱审计失败", exc_info=True)
 
 
-def list_dir(relative: str = ".") -> dict:
-    target = _resolve(relative)
+def list_dir(path: str = ".") -> dict:
+    target = _resolve(path)
     if not target.exists():
         raise ValueError("目录不存在")
     if not target.is_dir():
@@ -81,8 +81,8 @@ def list_dir(relative: str = ".") -> dict:
     return {"path": target.relative_to(_root()).as_posix(), "entries": entries}
 
 
-def read_file(relative: str, max_chars: int = 20000) -> dict:
-    target = _resolve(relative)
+def read_file(path: str, max_chars: int = 20000) -> dict:
+    target = _resolve(path)
     if not target.exists() or not target.is_file():
         raise ValueError("文件不存在")
     size = target.stat().st_size
@@ -101,8 +101,8 @@ def read_file(relative: str, max_chars: int = 20000) -> dict:
     }
 
 
-def write_file(relative: str, content: str, overwrite: bool = False) -> dict:
-    target = _resolve(relative)
+def write_file(path: str, content: str, overwrite: bool = False) -> dict:
+    target = _resolve(path)
     if target.exists() and not overwrite:
         raise ValueError("文件已存在；需要覆盖请传 overwrite=true")
     encoded = (content or "").encode("utf-8")
@@ -113,8 +113,8 @@ def write_file(relative: str, content: str, overwrite: bool = False) -> dict:
     return {"path": target.relative_to(_root()).as_posix(), "bytes": len(encoded)}
 
 
-def edit_file(relative: str, old: str, new: str, replace_all: bool = False) -> dict:
-    target = _resolve(relative)
+def edit_file(path: str, old: str, new: str, replace_all: bool = False) -> dict:
+    target = _resolve(path)
     if not target.exists() or not target.is_file():
         raise ValueError("文件不存在")
     data = target.read_bytes()
