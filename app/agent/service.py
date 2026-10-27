@@ -144,7 +144,11 @@ class AgentService:
                         + format_history(entries, settings.GROUP_HISTORY_CHARS)
                     )
                 else:
-                    system_prompt += f"\n\n没有查到{label}的群聊记录，不要编造。"
+                    system_prompt += (
+                        f"\n\n没有查到{label}的群聊记录，不要编造。"
+                        "如果用户指的是跨零点的夜晚，可以提示他改用"
+                        "「X号0点到2点」或「昨晚」再问。"
+                    )
 
         image_parts = []
         if attachments:

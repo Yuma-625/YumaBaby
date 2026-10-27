@@ -45,6 +45,12 @@ class GroupHistoryWindowTest(unittest.TestCase):
         self.assertEqual(start.hour, 1)
         self.assertEqual(end.hour, 3)
 
+    def test_day_evening_midnight_crosses_to_next_day(self):
+        start, end, _ = resolve_window("26号晚上12点到2点", self.now)
+        self.assertEqual(start.date().isoformat(), "2026-10-27")
+        self.assertEqual(start.hour, 0)
+        self.assertEqual(end.hour, 2)
+
     def test_yesterday(self):
         start, end, label = resolve_window("昨天的事", self.now)
         self.assertEqual(label, "昨天")

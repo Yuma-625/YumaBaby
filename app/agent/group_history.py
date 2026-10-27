@@ -79,13 +79,21 @@ def _resolve_explicit_range(value: str, now: datetime
     if not (0 <= start_h <= 24 and 0 <= end_h <= 24):
         return None
 
-    night = any(word in value for word in _NIGHT_WORDS) or "昨晚" in value
-    if night and start_h == 12:
+    night = (
+        any(word in value for word in _NIGHT_WORDS)
+        or "晚上" in value
+        or "昨晚" in value
+    )
+    midnight = night and start_h == 12
+    if midnight:
         start_h = 0
     start_h = 0 if start_h == 24 else start_h
     end_h = 0 if end_h == 24 else end_h
 
     target = _target_day(value, now)
+    # “26号晚上12点”指的是 26 号夜里跨到 27 号 0 点
+    if midnight and _DAY_RE.search(value) and "昨晚" not in value:
+        target = target + timedelta(days=1)
     start = _at(target, start_h)
     end = _at(target, end_h)
     if end <= start:
