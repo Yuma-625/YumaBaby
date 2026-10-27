@@ -126,6 +126,26 @@ class AgentService:
                     + "\n".join(lines)
                 )
 
+        if scope_type == "group" and settings.GROUP_CONTEXT_ENABLED:
+            from app.agent.group_history import format_history, resolve_window
+
+            window = resolve_window(text)
+            if window:
+                start, end, label = window
+                entries = self.store.group_context_between(
+                    scope_id,
+                    start.isoformat(timespec="seconds"),
+                    end.isoformat(timespec="seconds"),
+                    limit=settings.GROUP_HISTORY_LIMIT,
+                )
+                if entries:
+                    system_prompt += (
+                        f"\n\n{label}的群聊记录（按时间取出，可能不完整，仅供参考）：\n"
+                        + format_history(entries, settings.GROUP_HISTORY_CHARS)
+                    )
+                else:
+                    system_prompt += f"\n\n没有查到{label}的群聊记录，不要编造。"
+
         image_parts = []
         if attachments:
             from app.utils.vision import build_image_parts

@@ -995,12 +995,13 @@ class MemoryStore:
 
     def add_group_context(self, group_id: str, user_id: str, content: str,
                           attachments: list[dict[str, Any]] | None = None,
-                          sender_name: str = "") -> None:
+                          sender_name: str = "",
+                          created_at: str | None = None) -> None:
         payload = json.dumps(attachments, ensure_ascii=False) if attachments else ""
         self._conn.execute(
             "INSERT INTO group_context(group_id, user_id, sender_name, content, attachments, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (group_id, user_id, sender_name, content, payload, _now()),
+            (group_id, user_id, sender_name, content, payload, created_at or _now()),
         )
         # 只保留每个群最近 N 条
         self._conn.execute(
@@ -1023,6 +1024,21 @@ class MemoryStore:
             "FROM group_context WHERE group_id=? AND created_at>=? "
             "ORDER BY id DESC LIMIT ?",
             (group_id, cutoff, max(1, limit)),
+        ).fetchall()
+        result = []
+        for row in reversed(rows):
+            item = dict(row)
+            item["attachments"] = _load_attachments(item.get("attachments"))
+            result.append(item)
+        return result
+
+    def group_context_between(self, group_id: str, start: str, end: str,
+                              limit: int = 60) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT user_id, sender_name, content, attachments, created_at "
+            "FROM group_context WHERE group_id=? AND created_at>=? AND created_at<=? "
+            "ORDER BY id DESC LIMIT ?",
+            (group_id, start, end, max(1, limit)),
         ).fetchall()
         result = []
         for row in reversed(rows):

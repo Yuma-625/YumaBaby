@@ -279,6 +279,7 @@ fs_list  fs_read  fs_write  fs_edit  fs_glob  fs_grep
 - 解决“先发表情包、再 @ 它说‘用这个’”这类指代问题
 - 只保留每个群最近 `GROUP_CONTEXT_MAX` 条，注入窗口 `GROUP_CONTEXT_MINUTES` 分钟，不进 `messages`、不进数据集、不导出
 - 如果最近 3 条里有图片/表情包且当前消息没带图，会取最后一张送进视觉（`VISION_CONTEXT_IMAGES`）
+- 问到「昨晚 / 昨天 / 今早」时，会按时间段从 `group_context` 取记录注入（`GROUP_HISTORY_LIMIT`、`GROUP_HISTORY_CHARS`）；取不到会明确说没有记录，避免编造
 - 关闭：`GROUP_CONTEXT_ENABLED=false`
 
 真实测试：先让上下文里放一张左右分色图，再问「我刚才发的图是什么颜色」，回答「左边红右边蓝」。
@@ -396,6 +397,8 @@ fs_list  fs_read  fs_write  fs_edit  fs_glob  fs_grep
 | `GROUP_CONTEXT_MAX` | 300 | 每个群保留的最近消息条数 |
 | `GROUP_CONTEXT_MINUTES` | 30 | 注入上下文的时间窗口 |
 | `GROUP_CONTEXT_INJECT` | 10 | 每次注入多少条 |
+| `GROUP_HISTORY_LIMIT` | 60 | 按时间回看群聊时最多取多少条 |
+| `GROUP_HISTORY_CHARS` | 3000 | 回看群聊的字符上限 |
 | `VISION_CONTEXT_IMAGES` | 1 | 上下文里最多带几张历史图片 |
 | `MEMORY_DECAY_DAYS` | 30 | 记忆权重衰减时间常数（天） |
 | `MEMORY_MAX_PER_SCOPE` | 200 | 每个用户/群保留的记忆上限 |

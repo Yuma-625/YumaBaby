@@ -1,0 +1,66 @@
+import tempfile
+import unittest
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from app.agent.group_history import format_history, resolve_window
+from app.memory.store import MemoryStore
+
+
+class GroupHistoryWindowTest(unittest.TestCase):
+    def setUp(self):
+        self.tz = ZoneInfo("Asia/Shanghai")
+        self.now = datetime(2026, 10, 27, 12, 50, tzinfo=self.tz)
+
+    def test_last_night(self):
+        start, end, label = resolve_window("昨晚发生什么了", self.now)
+        self.assertEqual(label, "昨晚")
+        self.assertEqual(start.date().isoformat(), "2026-10-26")
+        self.assertEqual(start.hour, 18)
+        self.assertEqual(end.date().isoformat(), "2026-10-27")
+        self.assertEqual(end.hour, 6)
+
+    def test_yesterday(self):
+        start, end, label = resolve_window("昨天的事", self.now)
+        self.assertEqual(label, "昨天")
+        self.assertEqual(start.date().isoformat(), "2026-10-26")
+
+    def test_morning_and_none(self):
+        self.assertEqual(resolve_window("今早聊了啥", self.now)[2], "今天早上")
+        self.assertIsNone(resolve_window("今天天气不错", self.now))
+
+
+class GroupHistoryFormatTest(unittest.TestCase):
+    def test_format_and_truncate(self):
+        entries = [
+            {"created_at": "2026-10-26T23:39:07+08:00", "sender_name": "奶鱼", "content": "今晚打本"},
+            {"created_at": "2026-10-26T23:40:00+08:00", "sender_name": "奶坤", "content": "九点"},
+        ]
+        text = format_history(entries, max_chars=1000)
+        self.assertIn("[23:39] 奶鱼: 今晚打本", text)
+        self.assertIn("[23:40] 奶坤: 九点", text)
+        self.assertLessEqual(len(format_history(entries, max_chars=10)), 10)
+
+    def test_store_between(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp) / "m.db")
+            try:
+                store.add_group_context(
+                    "100", "1", "昨晚的消息", [], "奶鱼",
+                    created_at="2026-10-26T23:50:00+08:00",
+                )
+                store.add_group_context(
+                    "100", "1", "今天中午的消息", [], "奶鱼",
+                    created_at="2026-10-27T12:00:00+08:00",
+                )
+                rows = store.group_context_between(
+                    "100", "2026-10-26T18:00:00+08:00", "2026-10-27T06:00:00+08:00"
+                )
+                self.assertEqual([r["content"] for r in rows], ["昨晚的消息"])
+            finally:
+                store.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

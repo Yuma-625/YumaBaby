@@ -1,8 +1,10 @@
 import asyncio
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from app.agent.loop import AgentLoop
 from app.agent.service import AgentService, normalize_reply
@@ -96,6 +98,23 @@ class AgentServiceTest(unittest.TestCase):
                 "看看沙箱", chat_id="group:1", scope_type="group", scope_id="1",
             ))
             self.assertFalse(any(name.startswith("fs_") for name in llm2.tools_seen[0]))
+
+    def test_group_history_window_is_injected(self):
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        last_night = (now - timedelta(days=1)).replace(
+            hour=23, minute=0, second=0, microsecond=0
+        )
+        self.store.add_group_context(
+            "1", "7", "昨晚打本到十二点", [], "奶鱼",
+            created_at=last_night.isoformat(timespec="seconds"),
+        )
+        service, llm = self.make_service([answer("昨晚你们打本到十二点")])
+        asyncio.run(service.handle(
+            "昨晚发生什么了", chat_id="group:1", scope_type="group", scope_id="1",
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("昨晚的群聊记录", system)
+        self.assertIn("昨晚打本到十二点", system)
 
     def test_remember_flow(self):
         service, _ = self.make_service([
