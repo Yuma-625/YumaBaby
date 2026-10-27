@@ -101,6 +101,15 @@ class Settings:
     AGENT_MAX_TOKENS: int = _env_int("AGENT_MAX_TOKENS", 300)
     AGENT_HISTORY_TURNS: int = _env_int("AGENT_HISTORY_TURNS", 8)
     AGENT_MEMORY_LIMIT: int = _env_int("AGENT_MEMORY_LIMIT", 5)
+    # 会话压缩：超过阈值后把旧对话压成摘要，只保留最近若干条原文
+    HISTORY_COMPACT_ENABLED: bool = _env_bool("HISTORY_COMPACT_ENABLED", False)
+    HISTORY_COMPACT_AFTER: int = _env_int("HISTORY_COMPACT_AFTER", 30)
+    HISTORY_COMPACT_KEEP: int = _env_int("HISTORY_COMPACT_KEEP", 12)
+    # 沙箱文件工具：只在管理员私聊可用，路径限制在 SANDBOX_ROOT
+    SANDBOX_ENABLED: bool = _env_bool("SANDBOX_ENABLED", False)
+    SANDBOX_ROOT: str = os.getenv("SANDBOX_ROOT", str(BASE_DIR / "data" / "sandbox"))
+    SANDBOX_MAX_READ_BYTES: int = _env_int("SANDBOX_MAX_READ_BYTES", 200_000)
+    SANDBOX_MAX_WRITE_BYTES: int = _env_int("SANDBOX_MAX_WRITE_BYTES", 1_000_000)
     MEMORY_DECAY_DAYS: int = _env_int("MEMORY_DECAY_DAYS", 30)
     MEMORY_MAX_PER_SCOPE: int = _env_int("MEMORY_MAX_PER_SCOPE", 200)
     MEMORY_DB: str = os.getenv("MEMORY_DB", str(BASE_DIR / "data" / "memory.db"))

@@ -61,7 +61,19 @@ class AgentService:
             self._save(chat_id, text, reply, attachments)
             return reply
 
-        history = self.store.recent_messages(chat_id, settings.AGENT_HISTORY_TURNS * 2)
+        summary_row = (
+            self.store.get_chat_summary(chat_id)
+            if settings.HISTORY_COMPACT_ENABLED else None
+        )
+        if summary_row and summary_row.get("summary"):
+            history = self.store.recent_messages_after(
+                chat_id, int(summary_row["up_to_message_id"]),
+                settings.AGENT_HISTORY_TURNS * 2,
+            )
+        else:
+            history = self.store.recent_messages(
+                chat_id, settings.AGENT_HISTORY_TURNS * 2
+            )
         memories = []
         query_vector = None
         if settings.AGENT_MEMORY_LIMIT > 0:
@@ -91,6 +103,10 @@ class AgentService:
                 )
 
         system_prompt = build_system_prompt(self.persona.get_system_prompt(), memories)
+        if summary_row and summary_row.get("summary"):
+            system_prompt = (
+                f"此前对话摘要（供参考）：\n{summary_row['summary']}\n\n{system_prompt}"
+            )
 
         context_entries = []
         if scope_type == "group" and settings.GROUP_CONTEXT_ENABLED:
@@ -151,9 +167,21 @@ class AgentService:
                 )
 
         token = set_scope((scope_type, scope_id))
+        allowed_tools = None
+        if settings.SANDBOX_ENABLED:
+            from app.tools.sandbox import TOOL_NAMES
+
+            base = set(self.loop.tools.names) - TOOL_NAMES
+            is_admin_private = (
+                scope_type == "user"
+                and bool(settings.QQ_PERSONA_ADMIN)
+                and scope_id == settings.QQ_PERSONA_ADMIN
+            )
+            allowed_tools = base | (TOOL_NAMES if is_admin_private else set())
         try:
             result = await self.loop.run(
-                text, system_prompt=system_prompt, history=history, images=image_parts
+                text, system_prompt=system_prompt, history=history,
+                images=image_parts, allowed_tools=allowed_tools,
             )
         finally:
             reset_scope(token)
@@ -177,6 +205,11 @@ class AgentService:
             result.stopped, result.steps, len(result.trace), chat_id,
         )
         self._save(chat_id, text, reply, attachments)
+        try:
+            from app.memory.compactor import maybe_schedule as maybe_compact
+            maybe_compact(self.store, chat_id)
+        except Exception:
+            logger.exception("调度会话压缩失败")
         try:
             from app.memory.extractor import maybe_schedule
             maybe_schedule(self.store, scope_type, scope_id, chat_id)

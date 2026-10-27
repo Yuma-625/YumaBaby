@@ -93,8 +93,8 @@ class ToolRegistry:
     def names(self) -> list[str]:
         return list(self._specs)
 
-    def schemas(self) -> list[dict[str, Any]]:
-        """OpenAI / DeepSeek 的 tools 参数格式。"""
+    def schemas(self, allowed: set[str] | None = None) -> list[dict[str, Any]]:
+        """OpenAI / DeepSeek 的 tools 参数格式。allowed 为空表示全部。"""
         return [
             {
                 "type": "function",
@@ -105,16 +105,21 @@ class ToolRegistry:
                 },
             }
             for spec in self._specs.values()
+            if allowed is None or spec.name in allowed
         ]
 
     # ------------------------------------------------------------------ 执行
 
-    async def run(self, name: str, arguments: str | dict[str, Any] | None) -> ToolResult:
+    async def run(self, name: str, arguments: str | dict[str, Any] | None,
+                  *, allowed: set[str] | None = None) -> ToolResult:
         started = time.perf_counter()
 
         def finish(result: ToolResult) -> ToolResult:
             result.duration_ms = int((time.perf_counter() - started) * 1000)
             return result
+
+        if allowed is not None and name not in allowed:
+            return finish(ToolResult(False, error=f"当前会话不允许使用工具: {name}"))
 
         spec = self._specs.get(name)
         if spec is None:

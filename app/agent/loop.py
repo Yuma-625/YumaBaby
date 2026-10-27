@@ -60,6 +60,7 @@ class AgentLoop:
         history: list[dict[str, Any]] | None = None,
         images: list[dict[str, Any]] | None = None,
         kind: str = "agent",
+        allowed_tools: set[str] | None = None,
     ) -> AgentResult:
         messages: list[dict[str, Any]] = []
         if system_prompt:
@@ -80,7 +81,7 @@ class AgentLoop:
             try:
                 resp = await self.llm.complete(
                     messages,
-                    tools=self.tools.schemas() or None,
+                    tools=self.tools.schemas(allowed=allowed_tools) or None,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     kind=kind,
@@ -135,7 +136,9 @@ class AgentLoop:
                     )
                 seen[signature] = step
 
-                result = await self.tools.run(call.name, call.arguments)
+                result = await self.tools.run(
+                    call.name, call.arguments, allowed=allowed_tools
+                )
                 entry = {
                     "step": step,
                     "tool": call.name,

@@ -2,9 +2,11 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.agent.loop import AgentLoop
 from app.agent.service import AgentService, normalize_reply
+from app.config import settings
 from app.memory.store import MemoryStore
 from app.tools.builtin import build_registry
 from app.utils.llm import LLMResponse, ToolCall
@@ -14,9 +16,13 @@ class ScriptedLLM:
     def __init__(self, responses):
         self.responses = list(responses)
         self.messages_seen = []
+        self.tools_seen = []
 
     async def complete(self, messages, **kwargs):
         self.messages_seen.append([dict(m) for m in messages])
+        self.tools_seen.append([
+            item["function"]["name"] for item in (kwargs.get("tools") or [])
+        ])
         return self.responses.pop(0) if self.responses else None
 
 
@@ -58,6 +64,38 @@ class AgentServiceTest(unittest.TestCase):
         loop = AgentLoop(self.registry, llm=llm, max_steps=4)
         service = AgentService(loop, self.store, persona=persona or StubPersona())
         return service, llm
+
+    def test_compact_summary_is_in_prompt(self):
+        self.store.upsert_chat_summary("user:1", "用户之前说喜欢猫", 0)
+        service, llm = self.make_service([answer("好")])
+        with patch.object(settings, "HISTORY_COMPACT_ENABLED", True):
+            asyncio.run(service.handle(
+                "在吗", chat_id="user:1", scope_type="user", scope_id="1",
+            ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("此前对话摘要", system)
+        self.assertIn("喜欢猫", system)
+
+    def test_sandbox_tools_only_admin_private(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(settings, "SANDBOX_ENABLED", True), \
+             patch.object(settings, "SANDBOX_ROOT", str(Path(tmp) / "sandbox")), \
+             patch.object(settings, "QQ_PERSONA_ADMIN", "1293585554"):
+            registry = build_registry(self.store)
+            service, llm = self.make_service([answer("好")])
+            service.loop.tools = registry
+            asyncio.run(service.handle(
+                "看看沙箱", chat_id="user:1293585554",
+                scope_type="user", scope_id="1293585554",
+            ))
+            self.assertIn("fs_read", llm.tools_seen[0])
+
+            service2, llm2 = self.make_service([answer("好")])
+            service2.loop.tools = registry
+            asyncio.run(service2.handle(
+                "看看沙箱", chat_id="group:1", scope_type="group", scope_id="1",
+            ))
+            self.assertFalse(any(name.startswith("fs_") for name in llm2.tools_seen[0]))
 
     def test_remember_flow(self):
         service, _ = self.make_service([

@@ -153,6 +153,13 @@ CREATE TABLE IF NOT EXISTS memory_extract_cursors (
     updated_at TEXT NOT NULL,
     PRIMARY KEY(scope_type, scope_id)
 );
+
+CREATE TABLE IF NOT EXISTS chat_summaries (
+    chat_id TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    up_to_message_id INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 _MIGRATIONS = [
@@ -280,6 +287,50 @@ class MemoryStore:
             (chat_id, limit),
         ).fetchall()
         return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+
+    def recent_messages_after(self, chat_id: str, after_id: int,
+                              limit: int = 16) -> list[dict[str, str]]:
+        if limit <= 0:
+            return []
+        rows = self._conn.execute(
+            "SELECT role, content FROM messages WHERE chat_id = ? AND id > ? "
+            "ORDER BY id DESC LIMIT ?",
+            (chat_id, int(after_id), limit),
+        ).fetchall()
+        return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+
+    def messages_after_id(self, chat_id: str, after_id: int,
+                          limit: int = 40) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT id, role, content, created_at FROM messages "
+            "WHERE chat_id = ? AND id > ? ORDER BY id ASC LIMIT ?",
+            (chat_id, int(after_id), max(1, limit)),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def count_messages_after(self, chat_id: str, after_id: int) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM messages WHERE chat_id = ? AND id > ?",
+            (chat_id, int(after_id)),
+        ).fetchone()
+        return int(row["n"])
+
+    def get_chat_summary(self, chat_id: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM chat_summaries WHERE chat_id=?", (chat_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_chat_summary(self, chat_id: str, summary: str,
+                            up_to_message_id: int) -> None:
+        self._conn.execute(
+            "INSERT INTO chat_summaries(chat_id, summary, up_to_message_id, updated_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET "
+            "summary=excluded.summary, up_to_message_id=excluded.up_to_message_id, "
+            "updated_at=excluded.updated_at",
+            (chat_id, summary.strip(), int(up_to_message_id), _now()),
+        )
+        self._conn.commit()
 
     def clear_messages(self, chat_id: str) -> int:
         cur = self._conn.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))

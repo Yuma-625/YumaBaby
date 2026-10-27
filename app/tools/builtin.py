@@ -370,4 +370,8 @@ def build_registry(store: MemoryStore) -> ToolRegistry:
         },
         _forget,
     )
+    if settings.SANDBOX_ENABLED:
+        from app.tools.sandbox import register_sandbox_tools
+
+        register_sandbox_tools(registry, store)
     return registry

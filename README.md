@@ -233,6 +233,32 @@ A1（`EMBEDDING_ENABLED`）：
 - 补向量：`.\.venv\Scripts\python.exe -m app.memory.reindex`
 - 旧记忆补主题：`.\.venv\Scripts\python.exe -m app.memory.backfill`
 
+### 会话压缩
+
+`HISTORY_COMPACT_ENABLED=true` 时：
+
+- 一个会话超过 `HISTORY_COMPACT_AFTER` 条消息后，后台把旧对话压成摘要
+- 只保留最近 `HISTORY_COMPACT_KEEP` 条原文，摘要存 `chat_summaries`
+- 后续上下文 = “此前对话摘要 + 最近若干条”，原始消息不删除
+- 摘要增量更新：新摘要会带上旧摘要，不会从头重压
+- 压缩失败不写入，下一轮重试
+
+### 沙箱文件工具（仅管理员私聊）
+
+`SANDBOX_ENABLED=true` 时，管理员私聊可让模型使用：
+
+```
+fs_list  fs_read  fs_write  fs_edit  fs_glob  fs_grep
+```
+
+- 根目录固定 `SANDBOX_ROOT`，拒绝绝对路径、`..`、盘符、UNC、符号链接
+- 只能读写文本，读上限 `SANDBOX_MAX_READ_BYTES`，写上限 `SANDBOX_MAX_WRITE_BYTES`
+- 默认不覆盖；覆盖要显式 `overwrite=true`
+- 没有删除/移动命令
+- **群里和其他人私聊不会注册这些工具**；写操作记 `events(kind="sandbox")`
+
+⚠️ 这是路径 jail + 权限 + 审计，不是 OS 级安全隔离；机器人仍以你的用户权限运行。
+
 ### 图片与表情
 
 - 图片会下载、转成 base64 后作为 `image_url` 内容段发给模型（`deepseek-chat` 本身支持视觉）
@@ -380,6 +406,13 @@ A1（`EMBEDDING_ENABLED`）：
 | `AGENT_MAX_STEPS` | 6 | 单轮工具调用步数上限 |
 | `AGENT_HISTORY_TURNS` | 8 | 带多少轮历史（1 轮 = 1 问 1 答） |
 | `AGENT_MEMORY_LIMIT` | 5 | 每轮注入多少条记忆 |
+| `HISTORY_COMPACT_ENABLED` | false | 是否压缩旧对话 |
+| `HISTORY_COMPACT_AFTER` | 30 | 超过多少条消息触发压缩 |
+| `HISTORY_COMPACT_KEEP` | 12 | 压缩后保留多少条原文 |
+| `SANDBOX_ENABLED` | false | 是否启用沙箱文件工具（仅管理员私聊） |
+| `SANDBOX_ROOT` | data/sandbox | 沙箱根目录 |
+| `SANDBOX_MAX_READ_BYTES` | 200000 | 单文件读取上限 |
+| `SANDBOX_MAX_WRITE_BYTES` | 1000000 | 单文件写入上限 |
 | `MEMORY_DB` | data/memory.db | SQLite 路径 |
 | `MEMORY_EXTRACT_ENABLED` | false | 是否后台自动提炼长期记忆 |
 | `MEMORY_EXTRACT_EVERY` | 10 | 攒多少条消息提炼一次 |
