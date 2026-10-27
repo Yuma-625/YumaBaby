@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import time
 import unittest
@@ -56,6 +57,8 @@ class FakeTransport:
 
     def handler(self, request):
         self.requests.append(request)
+        if request.url.path.endswith("/files"):
+            return httpx.Response(200, json={"file_info": "FILEINFO", "ttl": 300})
         return httpx.Response(200, json={"id": "sent-1", "timestamp": "2026-10-28T01:00:00+08:00"})
 
 
@@ -89,6 +92,20 @@ class OfficialSendTest(unittest.TestCase):
         body = json.loads(self.transport.requests[0].content)
         self.assertNotIn("msg_id", body)
         self.assertEqual(self.transport.requests[0].url.path, "/v2/users/U1/messages")
+
+    def test_cq_image_is_uploaded_then_sent(self):
+        png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"x" * 32).decode()
+        result = asyncio.run(self.adapter.send_group_msg(
+            "G1", f"[CQ:image,file=base64://{png}]", msg_id="m1",
+        ))
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(self.transport.requests), 2)
+        upload = json.loads(self.transport.requests[0].content)
+        self.assertEqual(upload["file_type"], 1)
+        self.assertTrue(upload["file_data"])
+        sent = json.loads(self.transport.requests[1].content)
+        self.assertEqual(sent["msg_type"], 7)
+        self.assertEqual(sent["media"]["file_info"], "FILEINFO")
 
 
 if __name__ == "__main__":

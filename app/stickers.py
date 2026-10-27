@@ -197,6 +197,128 @@ async def handle_sticker_command(
     )
 
 
+# ---------------------------------------------------------------- 候选池（收集底子）
+
+def _candidate_dir() -> Path:
+    path = Path(settings.STICKER_CANDIDATES_DIR)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+async def collect_candidates(
+    store: MemoryStore,
+    attachments: list[dict] | None,
+    *,
+    group_id: str | None,
+    user_id: str,
+    sender_name: str = "",
+    message_id: str = "",
+) -> int:
+    """把消息里的图片收进候选池；策略由配置决定，默认关闭。"""
+    if not settings.STICKER_COLLECT_ENABLED or not attachments:
+        return 0
+    if settings.STICKER_COLLECT_GROUPS and (group_id or "") not in settings.STICKER_COLLECT_GROUPS:
+        return 0
+    if settings.STICKER_COLLECT_USERS and user_id not in settings.STICKER_COLLECT_USERS:
+        return 0
+    if store.count_sticker_candidates("pending") >= settings.STICKER_COLLECT_MAX_PER_DAY:
+        logger.info("表情候选达到每日上限，跳过收集")
+        return 0
+
+    added = 0
+    for attachment in attachments:
+        if attachment.get("type") not in _IMAGE_TYPES:
+            continue
+        url = str(attachment.get("url") or "")
+        if not url:
+            continue
+        downloaded = await _download(url)
+        if downloaded is None:
+            continue
+        data, ctype = downloaded
+        if ctype not in _ALLOWED_CTYPES:
+            continue
+        digest = hashlib.sha1(data).hexdigest()
+        if store.get_sticker_by_hash(digest):
+            continue
+        target = _candidate_dir() / f"{digest[:16]}{_ALLOWED_CTYPES[ctype]}"
+        if not target.exists():
+            target.write_bytes(data)
+        _, inserted = store.add_sticker_candidate(
+            digest, str(target), ctype=ctype,
+            group_id=group_id or "", user_id=user_id,
+            sender_name=sender_name, message_id=message_id,
+        )
+        added += 1 if inserted else 0
+    if added:
+        logger.info("收集表情候选: %d 个", added)
+    return added
+
+
+def approve_candidate(store: MemoryStore, candidate_id: int, name: str = "") -> str:
+    candidate = store.get_sticker_candidate(candidate_id)
+    if candidate is None:
+        return f"没有 #{candidate_id} 这个候选。"
+    if candidate.get("status") != "pending":
+        return f"#{candidate_id} 已经处理过了。"
+    source = Path(candidate["path"])
+    if not source.exists():
+        return f"候选 #{candidate_id} 的文件不在了。"
+    ext = _ALLOWED_CTYPES.get(candidate.get("ctype") or "", source.suffix or ".jpg")
+    final_name = _safe_name(name) or f"表情{candidate_id}"
+    target = _unique_path(Path(settings.STICKERS_DIR), final_name, ext, candidate["hash"])
+    Path(settings.STICKERS_DIR).mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        source.unlink(missing_ok=True)
+    else:
+        source.rename(target)
+    sticker_id, inserted, _ = store.save_sticker(
+        candidate["hash"], str(target), ctype=candidate.get("ctype") or "",
+        source_group=candidate.get("group_id") or "",
+        source_user=candidate.get("user_id") or "",
+        name=final_name,
+    )
+    store.set_sticker_candidate_status(candidate_id, "approved", str(target))
+    if inserted:
+        return f"收好了，表情包 #{sticker_id}「{final_name}」，一共 {store.count_stickers()} 个。"
+    return f"这个之前已经收过，是 #{sticker_id}。"
+
+
+def reject_candidate(store: MemoryStore, candidate_id: int) -> str:
+    candidate = store.get_sticker_candidate(candidate_id)
+    if candidate is None:
+        return f"没有 #{candidate_id} 这个候选。"
+    store.set_sticker_candidate_status(candidate_id, "rejected")
+    return f"已拒绝候选 #{candidate_id}。"
+
+
+def handle_sticker_admin(text: str, store: MemoryStore, user_id: str) -> str | None:
+    """管理员候选池命令：表情候选 / 收 3 命名xx / 拒 3。"""
+    if user_id != settings.QQ_PERSONA_ADMIN:
+        return None
+    value = (text or "").strip().strip(_PUNCT)
+    if value in ("表情候选", "表情审核", "候选表情"):
+        pending = store.list_sticker_candidates("pending", limit=8)
+        if not pending:
+            return "候选池是空的。"
+        lines = [f"待审核表情 {store.count_sticker_candidates('pending')} 个："]
+        for item in pending:
+            lines.append(
+                f"#{item['id']} {item.get('sender_name') or item.get('user_id') or '群友'}"
+                f"（{item.get('group_id') or '私聊'}）"
+            )
+        lines.append("回复「收 1 命名xx」或「拒 1」。")
+        return "\n".join(lines)
+
+    match = re.match(r"^(?:收|通过|采纳)\s*#?(\d+)(?:\s*命名\s*(.+))?$", value)
+    if match:
+        return approve_candidate(store, int(match.group(1)), (match.group(2) or "").strip())
+    match = re.match(r"^(?:拒|拒绝|不要)\s*#?(\d+)$", value)
+    if match:
+        return reject_candidate(store, int(match.group(1)))
+    return None
+
+
 # --------------------------------------------------------------------- 发表情
 
 _SEND_WORDS = ("发", "来")

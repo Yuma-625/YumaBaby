@@ -114,6 +114,19 @@ CREATE TABLE IF NOT EXISTS stickers (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS sticker_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hash TEXT UNIQUE NOT NULL,
+    path TEXT NOT NULL,
+    ctype TEXT DEFAULT '',
+    group_id TEXT DEFAULT '',
+    user_id TEXT DEFAULT '',
+    sender_name TEXT DEFAULT '',
+    message_id TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS group_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id TEXT NOT NULL,
@@ -1149,6 +1162,58 @@ class MemoryStore:
             "SELECT * FROM stickers ORDER BY id DESC LIMIT ?", (max(1, limit),)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def add_sticker_candidate(self, file_hash: str, path: str, ctype: str = "",
+                              group_id: str = "", user_id: str = "",
+                              sender_name: str = "", message_id: str = ""
+                              ) -> tuple[int, bool]:
+        existing = self._conn.execute(
+            "SELECT id FROM sticker_candidates WHERE hash=?", (file_hash,)
+        ).fetchone()
+        if existing:
+            return int(existing["id"]), False
+        cur = self._conn.execute(
+            "INSERT INTO sticker_candidates(hash, path, ctype, group_id, user_id, "
+            "sender_name, message_id, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+            (file_hash, path, ctype, group_id, user_id, sender_name, message_id, _now()),
+        )
+        self._conn.commit()
+        return int(cur.lastrowid), True
+
+    def get_sticker_candidate(self, candidate_id: int) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM sticker_candidates WHERE id=?", (candidate_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_sticker_candidates(self, status: str = "pending",
+                                limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM sticker_candidates WHERE status=? ORDER BY id DESC LIMIT ?",
+            (status, max(1, limit)),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def count_sticker_candidates(self, status: str = "pending") -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM sticker_candidates WHERE status=?", (status,)
+        ).fetchone()
+        return int(row["n"])
+
+    def set_sticker_candidate_status(self, candidate_id: int, status: str,
+                                     path: str | None = None) -> None:
+        if path is None:
+            self._conn.execute(
+                "UPDATE sticker_candidates SET status=? WHERE id=?",
+                (status, candidate_id),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE sticker_candidates SET status=?, path=? WHERE id=?",
+                (status, path, candidate_id),
+            )
+        self._conn.commit()
 
     # ------------------------------------------------------------------ 日报
 

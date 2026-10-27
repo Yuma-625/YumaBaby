@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -24,7 +25,22 @@ logger = logging.getLogger(__name__)
 
 _MENTION_RE = re.compile(r"\[\[at:([^\]]+)\]\]")
 _CQ_IMAGE_RE = re.compile(r"\[CQ:image,[^\]]*\]")
+_CQ_IMAGE_B64_RE = re.compile(r"\[CQ:image,file=base64://([^\]]+)\]")
 _AT_TAG_RE = re.compile(r"<@!?([^>]+)>")
+
+
+def _image_file_type(data: bytes) -> tuple[int, str]:
+    if data.startswith(b"\x89PNG"):
+        return 1, "png"
+    if data.startswith(b"\xff\xd8"):
+        return 1, "jpg"
+    if data.startswith(b"GIF8"):
+        return 1, "gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return 1, "webp"
+    if data.startswith(b"BM"):
+        return 1, "bmp"
+    return 4, "bin"
 
 
 def format_official_mentions(text: str) -> str:
@@ -572,23 +588,40 @@ class OfficialQQAdapter(BaseAdapter):
 
     async def send_group_msg(self, group_id: str, message: str,
                              msg_id: str | None = None) -> dict:
-        content, images = strip_cq_images(format_official_mentions(message))
-        if images:
-            logger.warning("官方适配器暂不支持本地 CQ 图片，已跳过 %d 张", images)
-        return await self._send_message("group", group_id, content, msg_id)
+        return await self._send_message("group", group_id, message, msg_id)
 
     async def send_private_msg(self, user_id: str, message: str,
                                msg_id: str | None = None) -> dict:
-        content, images = strip_cq_images(format_official_mentions(message))
-        if images:
-            logger.warning("官方适配器暂不支持本地 CQ 图片，已跳过 %d 张", images)
-        return await self._send_message("user", user_id, content, msg_id)
+        return await self._send_message("user", user_id, message, msg_id)
 
     async def _send_message(self, kind: str, target: str, content: str,
                             msg_id: str | None) -> dict:
+        images = _CQ_IMAGE_B64_RE.findall(content or "")
+        if not images:
+            text = format_official_mentions(content)
+            return await self._send_text(kind, target, text, msg_id)
+
+        text = _CQ_IMAGE_B64_RE.sub("", content or "")
+        text = format_official_mentions(text).strip()
+        last: dict = {"status": "failed", "error": "empty content"}
+        if text:
+            last = await self._send_text(kind, target, text, msg_id)
+        for encoded in images[:3]:
+            try:
+                data = base64.b64decode(encoded)
+            except Exception:
+                logger.warning("CQ 图片 base64 解码失败")
+                continue
+            file_info = await self._upload_image(kind, target, data)
+            if not file_info:
+                continue
+            last = await self._send_media(kind, target, file_info, msg_id)
+        return last
+
+    async def _send_text(self, kind: str, target: str, content: str,
+                         msg_id: str | None) -> dict:
         if not content.strip():
             return {"status": "failed", "error": "empty content"}
-        token = await self._ensure_token()
         body: dict[str, Any] = {"msg_type": 0, "content": content[:2000]}
         if msg_id:
             key = f"{kind}:{target}:{msg_id}"
@@ -596,6 +629,56 @@ class OfficialQQAdapter(BaseAdapter):
             self._reply_seq[key] = seq
             body["msg_id"] = msg_id
             body["msg_seq"] = seq
+        return await self._post(kind, target, body)
+
+    async def _send_media(self, kind: str, target: str, file_info: str,
+                          msg_id: str | None) -> dict:
+        body: dict[str, Any] = {
+            "msg_type": 7,
+            "media": {"file_info": file_info},
+        }
+        if msg_id:
+            key = f"{kind}:{target}:{msg_id}"
+            seq = self._reply_seq.get(key, 0) + 1
+            self._reply_seq[key] = seq
+            body["msg_id"] = msg_id
+            body["msg_seq"] = seq
+        return await self._post(kind, target, body)
+
+    async def _upload_image(self, kind: str, target: str, data: bytes) -> str:
+        file_type, ext = _image_file_type(data)
+        if len(data) > 5 * 1024 * 1024:
+            logger.warning("官方图片直传超过 5MB，跳过（需分片上传）")
+            return ""
+        token = await self._ensure_token()
+        path = (
+            f"/v2/groups/{target}/files" if kind == "group"
+            else f"/v2/users/{target}/files"
+        )
+        body = {
+            "file_type": file_type,
+            "file_name": f"sticker.{ext}",
+            "file_data": base64.b64encode(data).decode(),
+            "srv_send_msg": False,
+        }
+        try:
+            resp = await self._http.post(
+                f"{settings.QQ_OFFICIAL_API_BASE}{path}",
+                headers={"Authorization": f"QQBot {token}"},
+                json=body,
+            )
+            payload = resp.json()
+        except Exception as e:
+            logger.error(f"官方图片上传异常: {e}")
+            return ""
+        data_node = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        file_info = data_node.get("file_info") or ""
+        if not file_info:
+            logger.error(f"官方图片上传失败: {payload}")
+        return file_info
+
+    async def _post(self, kind: str, target: str, body: dict) -> dict:
+        token = await self._ensure_token()
         path = (
             f"/v2/groups/{target}/messages" if kind == "group"
             else f"/v2/users/{target}/messages"

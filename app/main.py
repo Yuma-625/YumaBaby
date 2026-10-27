@@ -60,6 +60,12 @@ async def on_qq_message(message: str, context: dict) -> str:
         if sticker_reply is not None:
             return sticker_reply
 
+        from app.stickers import handle_sticker_admin
+
+        candidate_reply = handle_sticker_admin(message, store, user_id)
+        if candidate_reply is not None:
+            return candidate_reply
+
     # 发表情：所有能跟机器人说话的人都可以
     if store is not None:
         from app.stickers import handle_sticker_send
@@ -115,6 +121,17 @@ def on_group_seen(group_id: str, user_id: str, text: str,
     shared.memory_store.add_group_context(
         group_id, user_id, text, attachments, sender_name
     )
+    if settings.STICKER_COLLECT_ENABLED and attachments:
+        from app.stickers import collect_candidates
+
+        task = asyncio.create_task(collect_candidates(
+            shared.memory_store,
+            attachments,
+            group_id=group_id,
+            user_id=user_id,
+            sender_name=sender_name,
+        ))
+        task.add_done_callback(_log_task_result)
 
 
 def _log_task_result(task: asyncio.Task):

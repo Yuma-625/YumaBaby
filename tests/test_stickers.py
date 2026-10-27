@@ -10,6 +10,9 @@ from unittest.mock import patch
 from app.config import settings
 from app.memory.store import MemoryStore
 from app.stickers import (
+    approve_candidate,
+    collect_candidates,
+    handle_sticker_admin,
     handle_sticker_command,
     handle_sticker_send,
     is_send_command,
@@ -18,6 +21,7 @@ from app.stickers import (
     parse_send_id,
     parse_send_ids,
     parse_sticker_name,
+    reject_candidate,
     save_sticker,
 )
 
@@ -42,6 +46,9 @@ class StickerCommandTest(unittest.TestCase):
         self.store = MemoryStore(self.root / "m.db")
         self._patches = [
             patch.object(settings, "STICKERS_DIR", str(self.root / "stickers")),
+            patch.object(settings, "STICKER_CANDIDATES_DIR", str(self.root / "candidates")),
+            patch.object(settings, "STICKER_COLLECT_ENABLED", True),
+            patch.object(settings, "STICKER_COLLECT_MAX_PER_DAY", 20),
             patch.object(settings, "QQ_PERSONA_ADMIN", "1293585554"),
         ]
         for p in self._patches:
@@ -52,6 +59,47 @@ class StickerCommandTest(unittest.TestCase):
             p.stop()
         self.store.close()
         self.tmp.cleanup()
+
+    def test_collect_and_approve_candidate(self):
+        added = asyncio.run(collect_candidates(
+            self.store,
+            [{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="7", sender_name="奶鱼",
+        ))
+        self.assertEqual(added, 1)
+        self.assertEqual(self.store.count_sticker_candidates("pending"), 1)
+        candidate = self.store.list_sticker_candidates()[0]
+        self.assertTrue(Path(candidate["path"]).exists())
+
+        reply = approve_candidate(self.store, candidate["id"], "测试表情")
+        self.assertIn("收好了", reply)
+        self.assertEqual(self.store.count_stickers(), 1)
+        self.assertEqual(self.store.get_sticker_candidate(candidate["id"])["status"], "approved")
+
+        sent = asyncio.run(handle_sticker_send(
+            "发送测试表情", store=self.store, user_id="1293585554",
+        ))
+        self.assertTrue(sent.startswith("[CQ:image"))
+
+    def test_candidate_dedup_and_reject(self):
+        attachment = [{"type": "image", "url": data_uri()}]
+        asyncio.run(collect_candidates(self.store, attachment, group_id="100", user_id="7"))
+        asyncio.run(collect_candidates(self.store, attachment, group_id="100", user_id="7"))
+        self.assertEqual(self.store.count_sticker_candidates("pending"), 1)
+        candidate = self.store.list_sticker_candidates()[0]
+        self.assertIn("已拒绝", reject_candidate(self.store, candidate["id"]))
+        self.assertEqual(self.store.count_sticker_candidates("pending"), 0)
+
+    def test_admin_candidate_commands(self):
+        asyncio.run(collect_candidates(
+            self.store, [{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="7", sender_name="奶鱼",
+        ))
+        listing = handle_sticker_admin("表情候选", self.store, "1293585554")
+        self.assertIn("待审核表情", listing)
+        self.assertIn("奶鱼", listing)
+        reply = handle_sticker_admin("收 1 命名候选表情", self.store, "1293585554")
+        self.assertIn("收好了", reply)
 
     def test_command_detection(self):
         self.assertTrue(is_sticker_command("存这个表情包"))

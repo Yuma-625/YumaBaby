@@ -102,8 +102,19 @@ class Settings:
     SUMMARY_DAILY_LIMIT: int = _env_int("SUMMARY_DAILY_LIMIT", 10)
     # 表情库
     STICKERS_DIR: str = os.getenv("STICKERS_DIR", str(BASE_DIR / "data" / "stickers"))
+    STICKER_CANDIDATES_DIR: str = os.getenv(
+        "STICKER_CANDIDATES_DIR", str(BASE_DIR / "data" / "sticker_candidates")
+    )
     STICKER_MAX_BYTES: int = _env_int("STICKER_MAX_BYTES", 5_000_000)
     STICKER_LOOKBACK_MINUTES: int = _env_int("STICKER_LOOKBACK_MINUTES", 10)
+    # 图片来源收集：默认关闭，先只做底子
+    STICKER_COLLECT_ENABLED: bool = _env_bool("STICKER_COLLECT_ENABLED", False)
+    STICKER_COLLECT_GROUPS: list[str] = _env_list("STICKER_COLLECT_GROUPS")
+    STICKER_COLLECT_USERS: list[str] = _env_list("STICKER_COLLECT_USERS")
+    STICKER_COLLECT_MAX_PER_DAY: int = _env_int("STICKER_COLLECT_MAX_PER_DAY", 20)
+    # 发送策略：manual=只响应指令；future: random/keyword
+    STICKER_SEND_MODE: str = os.getenv("STICKER_SEND_MODE", "manual").strip().lower()
+    STICKER_SEND_CHANCE: float = float(os.getenv("STICKER_SEND_CHANCE", "0") or 0)
     # 连发合并：同一会话在这个窗口内的多条消息合并成一次处理；0 = 关闭
     DEBOUNCE_SECONDS: float = float(os.getenv("DEBOUNCE_SECONDS", "1.5") or 0)
     DEBOUNCE_MAX_CHARS: int = _env_int("DEBOUNCE_MAX_CHARS", 400)
