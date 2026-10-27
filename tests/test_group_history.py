@@ -21,6 +21,30 @@ class GroupHistoryWindowTest(unittest.TestCase):
         self.assertEqual(end.date().isoformat(), "2026-10-27")
         self.assertEqual(end.hour, 6)
 
+    def test_early_morning_explicit_range(self):
+        start, end, label = resolve_window("27号0点到2点左右", self.now)
+        self.assertEqual(start.date().isoformat(), "2026-10-27")
+        self.assertEqual(start.hour, 0)
+        self.assertEqual(end.date().isoformat(), "2026-10-27")
+        self.assertEqual(end.hour, 2)
+
+    def test_midnight_12_means_zero(self):
+        start, end, _ = resolve_window("半夜12点到2点聊了啥", self.now)
+        self.assertEqual(start.date().isoformat(), "2026-10-27")
+        self.assertEqual(start.hour, 0)
+        self.assertEqual(end.hour, 2)
+
+    def test_last_night_12_range(self):
+        start, end, _ = resolve_window("昨晚12点到2点", self.now)
+        self.assertEqual(start.date().isoformat(), "2026-10-27")
+        self.assertEqual(start.hour, 0)
+        self.assertEqual(end.hour, 2)
+
+    def test_early_morning_hours(self):
+        start, end, _ = resolve_window("凌晨1点到3点", self.now)
+        self.assertEqual(start.hour, 1)
+        self.assertEqual(end.hour, 3)
+
     def test_yesterday(self):
         start, end, label = resolve_window("昨天的事", self.now)
         self.assertEqual(label, "昨天")
