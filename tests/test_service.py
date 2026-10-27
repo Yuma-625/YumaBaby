@@ -34,7 +34,7 @@ class StubPersona:
         self.analyzed = []
 
     def get_system_prompt(self):
-        return "你是小鱼，回答简洁。"
+        return "你是小弗，回答简洁。"
 
     def should_analyze(self, text):
         return self.learn

@@ -1,4 +1,4 @@
-# Yuma小鱼
+# Yuma小弗
 
 一个跑在 QQ 群里的轻量智能体：**LLM 闲聊 + 人设自进化**，通过 NapCatQQ（OneBot v11 正向 WebSocket）接入 QQ，对外提供 FastAPI HTTP 接口。
 
@@ -185,7 +185,7 @@ python -m app.review.server
 数据集每行：
 
 ```json
-{"date":"2026-10-23","chat_id":"user:1293585554","user":"小鱼晚上","assistant":"晚上好……","score":8,"note":"语气自然","message_id":42}
+{"date":"2026-10-23","chat_id":"user:1293585554","user":"小弗晚上","assistant":"晚上好……","score":8,"note":"语气自然","message_id":42}
 ```
 
 标记为完成的天会记录在 `review_days` 表，重复提交会覆盖同一天的导出文件。标注台默认只监听 `127.0.0.1`，不对外网开放。
@@ -197,7 +197,7 @@ python -m app.review.server
 连发合并（M1.5）：同一会话在 `DEBOUNCE_SECONDS` 窗口内的多条消息合并成一次调用。
 
 - 缓冲按「群 + 人」隔离，群友之间的消息不会互相混入
-- 第一条命中 @ / 关键词后，窗口内后续碎片消息**不再要求触发词**（「小鱼 在吗」→ 两条合成一条）
+- 第一条命中 @ / 关键词后，窗口内后续碎片消息**不再要求触发词**（「小弗 在吗」→ 两条合成一条）
 - 超过 `DEBOUNCE_MAX_CHARS` 或 `DEBOUNCE_MAX_MESSAGES` 立即处理，不等窗口
 - `DEBOUNCE_SECONDS=0` 关闭该行为
 - 适配器停止时取消所有待处理缓冲
@@ -548,7 +548,7 @@ QQ_WS_URL=ws://127.0.0.1:3001
 QQ_ACCESS_TOKEN=与 NapCat 侧一致
 QQ_TARGET_GROUPS=你的群号
 QQ_BOT_UID=机器人QQ
-QQ_AUTO_REPLY_KEYWORDS=小鱼
+QQ_AUTO_REPLY_KEYWORDS=小弗
 QQ_PERSONA_ADMIN=管理员QQ
 LLM_API_KEY=sk-...
 LLM_MODEL=deepseek-chat

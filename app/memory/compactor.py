@@ -26,7 +26,7 @@ _running: set[str] = set()
 def _transcript(messages: list[dict[str, Any]], limit_chars: int = 5000) -> str:
     lines = []
     for message in messages:
-        role = "用户" if message.get("role") == "user" else "小鱼"
+        role = "用户" if message.get("role") == "user" else "小弗"
         content = (message.get("content") or "").strip()[:400]
         if content:
             lines.append(f"{role}: {content}")

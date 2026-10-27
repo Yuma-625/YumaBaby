@@ -30,7 +30,7 @@ class QQAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
             "self_id": 999,
             "group_id": 100,
             "user_id": 42,
-            "raw_message": "小鱼 [CQ:at,qq=999] 在吗",
+            "raw_message": "小弗 [CQ:at,qq=999] 在吗",
         }, ensure_ascii=False))
 
         raw = await ws.recv()
@@ -52,7 +52,7 @@ class QQAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
             self.adapter.ws_url = f"ws://127.0.0.1:{port}"
 
             with patch.object(settings, "QQ_TARGET_GROUPS", ["100"]), \
-                 patch.object(settings, "QQ_AUTO_REPLY_KEYWORDS", ["小鱼"]), \
+                 patch.object(settings, "QQ_AUTO_REPLY_KEYWORDS", ["小弗"]), \
                  patch.object(settings, "QQ_BOT_UID", "999"):
                 task = asyncio.create_task(self.adapter.start())
                 try:
@@ -64,7 +64,7 @@ class QQAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
                         await task
 
         # CQ 码应被清洗后再交给业务层
-        self.assertEqual(self.received[0][0], "小鱼 在吗")
+        self.assertEqual(self.received[0][0], "小弗 在吗")
         self.assertEqual(self.received[0][1]["group_id"], "100")
         # 回复应通过 send_group_msg 发出
         self.assertEqual(self.api_request["action"], "send_group_msg")

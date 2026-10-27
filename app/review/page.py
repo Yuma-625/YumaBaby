@@ -5,7 +5,7 @@ PAGE = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>小鱼 · 回复标注台</title>
+<title>小弗 · 回复标注台</title>
 <style>
   :root { color-scheme: dark; --bg:#111317; --panel:#1a1d23; --line:#2a2f38;
           --text:#e6e8ec; --dim:#8b93a1; --accent:#4f8cff; --good:#3ecf8e; --bad:#ff6b6b; }
@@ -68,7 +68,7 @@ PAGE = r"""<!doctype html>
     <div id="body" hidden>
       <div class="meta"><span id="chat"></span><span id="time"></span><span id="idx"></span></div>
       <div class="bubble user"><span class="tag">用户</span><span id="user"></span></div>
-      <div class="bubble bot"><span class="tag">小鱼</span><span id="assistant"></span></div>
+      <div class="bubble bot"><span class="tag">小弗</span><span id="assistant"></span></div>
       <div class="scores" id="scores"></div>
       <textarea id="note" placeholder="备注（可选）：为什么好/为什么差"></textarea>
       <div class="progress"><span id="bar"></span></div>

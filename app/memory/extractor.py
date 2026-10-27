@@ -91,7 +91,7 @@ def parse_extraction(raw: str | None) -> list[dict[str, Any]] | None:
 def _transcript(messages: list[dict[str, Any]]) -> str:
     lines = []
     for message in messages:
-        role = "用户" if message.get("role") == "user" else "小鱼"
+        role = "用户" if message.get("role") == "user" else "小弗"
         content = (message.get("content") or "").strip()[:300]
         if content:
             lines.append(f"{message['id']} [{role}] {content}")

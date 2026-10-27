@@ -30,7 +30,7 @@ class DebounceTest(unittest.IsolatedAsyncioTestCase):
             patch.object(settings, "DEBOUNCE_MAX_CHARS", 400),
             patch.object(settings, "DEBOUNCE_MAX_MESSAGES", 5),
             patch.object(settings, "QQ_TARGET_GROUPS", ["100"]),
-            patch.object(settings, "QQ_AUTO_REPLY_KEYWORDS", ["小鱼"]),
+            patch.object(settings, "QQ_AUTO_REPLY_KEYWORDS", ["小弗"]),
             patch.object(settings, "GROUP_TRIGGER_MODE", "mention_or_keyword"),
             patch.object(settings, "QQ_BOT_UID", "999"),
         ]
@@ -84,13 +84,13 @@ class DebounceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_group_trigger_then_merge(self):
         await self.adapter._handle_group_message({
-            "group_id": "100", "user_id": "7", "raw_message": "小鱼你好",
+            "group_id": "100", "user_id": "7", "raw_message": "小弗你好",
         })
         await self.adapter._handle_group_message({
             "group_id": "100", "user_id": "7", "raw_message": "在吗",
         })
         self.assertTrue(await wait_until(lambda: len(self.calls) == 1))
-        self.assertEqual(self.calls[0][0], "小鱼你好\n在吗")
+        self.assertEqual(self.calls[0][0], "小弗你好\n在吗")
 
     async def test_group_message_without_trigger_is_ignored(self):
         await self.adapter._handle_group_message({

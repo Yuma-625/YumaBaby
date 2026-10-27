@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from app.adapters.qq import clean_message, format_mentions, parse_message
 from app.config import settings
@@ -42,12 +43,13 @@ class ParseMessageTest(unittest.TestCase):
 
     def test_array_message_detects_bot_mention(self):
         data = {"message": [
-            {"type": "at", "data": {"qq": settings.QQ_BOT_UID, "name": "小鱼"}},
+            {"type": "at", "data": {"qq": "20002", "name": "小弗"}},
             {"type": "text", "data": {"text": " 在吗"}},
         ]}
-        parsed = parse_message(data)
+        with patch.object(settings, "QQ_BOT_UID", "20002"):
+            parsed = parse_message(data)
         self.assertTrue(parsed.at_bot)
-        self.assertNotIn("@小鱼", parsed.text)
+        self.assertNotIn("@小弗", parsed.text)
         self.assertEqual(parsed.text, "在吗")
 
     def test_string_message_fallback(self):

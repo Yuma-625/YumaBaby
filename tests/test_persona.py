@@ -109,7 +109,7 @@ class QQAdapterFilterTest(unittest.TestCase):
                 "self_id": 10001,
                 "user_id": 10001,
                 "group_id": "20002",
-                "raw_message": "小鱼你好",
+                "raw_message": "小弗你好",
             })
 
         asyncio.run(run())
@@ -124,7 +124,7 @@ class QQAdapterFilterTest(unittest.TestCase):
                 "message_type": "group",
                 "message_id": 11,
                 "group_id": "20002",
-                "raw_message": "小鱼你好",
+                "raw_message": "小弗你好",
             })
 
         asyncio.run(run())

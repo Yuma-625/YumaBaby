@@ -36,9 +36,9 @@ class SandboxFileTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_write_read_list(self):
-        write_file("a.txt", "hello 小鱼")
+        write_file("a.txt", "hello 小弗")
         data = read_file("a.txt")
-        self.assertEqual(data["content"], "hello 小鱼")
+        self.assertEqual(data["content"], "hello 小弗")
         names = [item["name"] for item in list_dir(".")["entries"]]
         self.assertIn("a.txt", names)
 
@@ -51,8 +51,8 @@ class SandboxFileTest(unittest.TestCase):
 
     def test_edit(self):
         write_file("a.txt", "hello world")
-        edit_file("a.txt", "world", "小鱼")
-        self.assertEqual(read_file("a.txt")["content"], "hello 小鱼")
+        edit_file("a.txt", "world", "小弗")
+        self.assertEqual(read_file("a.txt")["content"], "hello 小弗")
 
     def test_edit_missing_text(self):
         write_file("a.txt", "hello")

@@ -10,7 +10,7 @@ class GroupTriggerTest(unittest.TestCase):
         self.adapter = QQAdapter(on_message=None)
         self.patches = [
             patch.object(settings, "QQ_BOT_UID", "999"),
-            patch.object(settings, "QQ_AUTO_REPLY_KEYWORDS", ["小鱼"]),
+            patch.object(settings, "QQ_AUTO_REPLY_KEYWORDS", ["小弗"]),
         ]
         for p in self.patches:
             p.start()
@@ -22,18 +22,18 @@ class GroupTriggerTest(unittest.TestCase):
     def test_mention_or_keyword_default(self):
         with patch.object(settings, "GROUP_TRIGGER_MODE", "mention_or_keyword"):
             self.assertTrue(self.adapter._is_group_triggered(True, "hi"))
-            self.assertTrue(self.adapter._is_group_triggered(False, "小鱼在吗"))
+            self.assertTrue(self.adapter._is_group_triggered(False, "小弗在吗"))
             self.assertFalse(self.adapter._is_group_triggered(False, "今天天气不错"))
 
     def test_mention_only(self):
         with patch.object(settings, "GROUP_TRIGGER_MODE", "mention"):
             self.assertTrue(self.adapter._is_group_triggered(True, "hi"))
-            self.assertFalse(self.adapter._is_group_triggered(False, "小鱼在吗"))
+            self.assertFalse(self.adapter._is_group_triggered(False, "小弗在吗"))
 
     def test_keyword_only(self):
         with patch.object(settings, "GROUP_TRIGGER_MODE", "keyword"):
             self.assertFalse(self.adapter._is_group_triggered(True, "hi"))
-            self.assertTrue(self.adapter._is_group_triggered(False, "小鱼在吗"))
+            self.assertTrue(self.adapter._is_group_triggered(False, "小弗在吗"))
 
     def test_all(self):
         with patch.object(settings, "GROUP_TRIGGER_MODE", "all"):

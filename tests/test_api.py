@@ -37,7 +37,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["skill_used"], "chat")
-        self.assertIn("小鱼", body["reply"])
+        self.assertIn("小弗", body["reply"])
 
     def test_chat_rejects_empty_message(self):
         resp = client.post("/api/v1/chat", json={"message": ""})

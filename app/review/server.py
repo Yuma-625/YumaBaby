@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
         app.state.store.close()
 
 
-app = FastAPI(title="小鱼标注台", lifespan=lifespan)
+app = FastAPI(title="小弗标注台", lifespan=lifespan)
 
 
 def get_store(request: Request) -> MemoryStore:

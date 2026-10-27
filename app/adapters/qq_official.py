@@ -78,6 +78,7 @@ class OfficialQQAdapter(BaseAdapter):
         self._pending: dict[str, _PendingChat] = {}
         self._reply_seq: dict[str, int] = {}
         self._last_auto_reply: dict[str, float] = {}
+        self._seen_groups: set[str] = set()
         self._awaiting_feedback = False
         self._awaiting_since = 0.0
 
@@ -263,7 +264,8 @@ class OfficialQQAdapter(BaseAdapter):
                     str(m.get("id") or m.get("member_openid")) == self._bot_openid
                     for m in (data.get("mentions") or [])
                 )
-            logger.info(
+            log = logger.info if event != "GROUP_MESSAGE_CREATE" else logger.debug
+            log(
                 "官方群事件 %s group=%s user=%s at_bot=%s",
                 event, data.get("group_openid"),
                 (data.get("author") or {}).get("member_openid"), at_bot,
@@ -340,7 +342,12 @@ class OfficialQQAdapter(BaseAdapter):
         parsed = self._parse_event(data)
         text = parsed["text"]
         user_id = parsed["user_id"]
-        logger.info(f"收到官方群消息 [{group_id}] {user_id}: {text} | at_bot={at_bot}")
+        if group_id not in self._seen_groups:
+            self._seen_groups.add(group_id)
+            logger.info(
+                "发现群 openid: %s（成员 openid 示例: %s）", group_id, user_id
+            )
+        logger.debug(f"收到官方群消息 [{group_id}] {user_id}: {text} | at_bot={at_bot}")
         if self.on_group_seen:
             try:
                 self.on_group_seen(

@@ -33,7 +33,7 @@ class OfficialParseTest(unittest.TestCase):
             "content": " <@BOT> 你好 <@U2> ",
             "author": {"member_openid": "U1", "username": "奶鱼", "bot": False},
             "mentions": [
-                {"id": "BOT", "username": "小鱼"},
+                {"id": "BOT", "username": "小弗"},
                 {"id": "U2", "username": "奶坤"},
             ],
             "attachments": [
@@ -43,7 +43,7 @@ class OfficialParseTest(unittest.TestCase):
         parsed = adapter._parse_event(data)
         self.assertEqual(parsed["user_id"], "U1")
         self.assertEqual(parsed["name"], "奶鱼")
-        self.assertIn("@小鱼", parsed["text"])
+        self.assertIn("@小弗", parsed["text"])
         self.assertIn("@奶坤", parsed["text"])
         self.assertIn("[图片]", parsed["text"])
         self.assertEqual(parsed["attachments"][0]["type"], "image")

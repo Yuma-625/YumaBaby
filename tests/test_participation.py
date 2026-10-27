@@ -31,7 +31,7 @@ class AutoParticipationTest(unittest.IsolatedAsyncioTestCase):
             patch.object(settings, "PARTICIPATION_RATE", 1.0),
             patch.object(settings, "PARTICIPATION_COOLDOWN_SECONDS", 0),
             patch.object(settings, "GROUP_TRIGGER_MODE", "mention_or_keyword"),
-            patch.object(settings, "QQ_AUTO_REPLY_KEYWORDS", ["小鱼"]),
+            patch.object(settings, "QQ_AUTO_REPLY_KEYWORDS", ["小弗"]),
             patch.object(settings, "QQ_BOT_UID", "999"),
             patch.object(settings, "DEBOUNCE_SECONDS", 0),
         ]
@@ -152,7 +152,7 @@ class AutoParticipationTest(unittest.IsolatedAsyncioTestCase):
         )
         with patch.object(settings, "QQ_READONLY_GROUPS", ["100"]):
             await adapter._handle_group_message({
-                "group_id": "100", "user_id": "7", "raw_message": "小鱼你好",
+                "group_id": "100", "user_id": "7", "raw_message": "小弗你好",
             })
         self.assertEqual(len(seen), 1)
         await asyncio.sleep(0.1)
