@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import shared
 from app.adapters.qq import QQAdapter
+from app.adapters.qq_official import OfficialQQAdapter
 from app.agent.core import agent
 from app.agent.loop import AgentLoop
 from app.agent.scheduler import start_scheduler, stop_scheduler
@@ -177,11 +178,20 @@ async def lifespan(app: FastAPI):
     if settings.QQ_ENABLED:
         if not settings.QQ_TARGET_GROUPS:
             logger.warning("QQ_TARGET_GROUPS 为空，群消息将不会被处理")
-        shared.qq_adapter = QQAdapter(
-            on_message=on_qq_message,
-            on_reply_sent=on_reply_sent,
-            on_group_seen=on_group_seen,
+        shared.qq_adapter = (
+            OfficialQQAdapter(
+                on_message=on_qq_message,
+                on_reply_sent=on_reply_sent,
+                on_group_seen=on_group_seen,
+            )
+            if settings.QQ_PROVIDER == "official"
+            else QQAdapter(
+                on_message=on_qq_message,
+                on_reply_sent=on_reply_sent,
+                on_group_seen=on_group_seen,
+            )
         )
+        logger.info("QQ 适配器: %s", settings.QQ_PROVIDER)
         qq_task = asyncio.create_task(shared.qq_adapter.start())
         qq_task.add_done_callback(_log_task_result)
 

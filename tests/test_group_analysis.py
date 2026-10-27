@@ -23,6 +23,7 @@ class GroupAnalysisTest(unittest.TestCase):
             self.store.add_group_context(
                 "100", entry["user_id"], entry["content"],
                 entry["attachments"], entry["sender_name"],
+                created_at=entry["created_at"],
             )
 
     def tearDown(self):

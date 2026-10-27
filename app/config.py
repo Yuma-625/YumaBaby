@@ -57,6 +57,15 @@ class Settings:
 
     # QQ Bot
     QQ_ENABLED: bool = _env_bool("QQ_ENABLED", False)
+    # onebot = NapCat/OneBot v11；official = QQ 开放平台机器人
+    QQ_PROVIDER: str = os.getenv("QQ_PROVIDER", "onebot").strip().lower()
+    QQ_OFFICIAL_APP_ID: str = os.getenv("QQ_OFFICIAL_APP_ID", "").strip()
+    QQ_OFFICIAL_APP_SECRET: str = os.getenv("QQ_OFFICIAL_APP_SECRET", "").strip()
+    QQ_OFFICIAL_API_BASE: str = os.getenv(
+        "QQ_OFFICIAL_API_BASE", "https://api.bot.qq.com"
+    ).rstrip("/")
+    QQ_OFFICIAL_INTENTS: int = _env_int("QQ_OFFICIAL_INTENTS", 1 << 25)
+    QQ_OFFICIAL_BOT_OPENID: str = os.getenv("QQ_OFFICIAL_BOT_OPENID", "").strip()
     QQ_WS_URL: str = os.getenv("QQ_WS_URL", "ws://127.0.0.1:6700")
     QQ_ACCESS_TOKEN: str = os.getenv("QQ_ACCESS_TOKEN", "")
     QQ_TARGET_GROUPS: list[str] = _env_list("QQ_TARGET_GROUPS")

@@ -259,6 +259,33 @@ fs_list  fs_read  fs_write  fs_edit  fs_glob  fs_grep
 
 ⚠️ 这是路径 jail + 权限 + 审计，不是 OS 级安全隔离；机器人仍以你的用户权限运行。
 
+### QQ 接入方式
+
+`QQ_PROVIDER=onebot | official`：
+
+- `onebot`：NapCat / OneBot v11，个人 QQ 非官方接入
+- `official`：QQ 开放平台机器人，AppID/AppSecret + 官方 WebSocket Gateway
+
+官方模式必填：
+
+```dotenv
+QQ_PROVIDER=official
+QQ_OFFICIAL_APP_ID=
+QQ_OFFICIAL_APP_SECRET=
+QQ_OFFICIAL_BOT_OPENID=      # READY 后自动获取，也可手动填
+```
+
+官方模式下，`QQ_TARGET_GROUPS`、`QQ_READONLY_GROUPS`、`QQ_PARTICIPATION_GROUPS`、`GROUP_ANALYSIS_GROUPS`、`QQ_PERSONA_ADMIN`、`QQ_PRIVATE_WHITELIST` 都要填 **openid**，不是 QQ 号。
+
+官方协议支持：
+
+- `C2C_MESSAGE_CREATE` 单聊
+- `GROUP_AT_MESSAGE_CREATE` 群 @
+- `GROUP_MESSAGE_CREATE` 群全量（需在开放平台开启“接收所有消息”）
+- 断线 `Resume` 补发
+
+当前限制：官方适配器**只发文本**；表情/图片仍走 OneBot 的 CQ base64，官方模式会跳过并告警。富媒体上传是下一步。
+
 ### 图片与表情
 
 - 图片会下载、转成 base64 后作为 `image_url` 内容段发给模型（`deepseek-chat` 本身支持视觉）
