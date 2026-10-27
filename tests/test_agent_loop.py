@@ -133,15 +133,28 @@ class AgentLoopTest(unittest.TestCase):
 
     def test_repeated_call_stops(self):
         same = '{"text": "x"}'
-        llm = ScriptedLLM([call("echo", same), call("echo", same, "c2")])
+        llm = ScriptedLLM([
+            call("echo", same), call("echo", same, "c2"), call("echo", same, "c3"),
+        ])
         result = asyncio.run(AgentLoop(make_registry(), llm=llm).run("重复"))
         self.assertEqual(result.stopped, "repeated")
+        self.assertEqual(len(result.trace), 1)
+
+    def test_duplicate_gets_one_chance_to_recover(self):
+        same = '{"text": "x"}'
+        llm = ScriptedLLM([
+            call("echo", same), call("echo", same, "c2"), answer("换了个说法"),
+        ])
+        result = asyncio.run(AgentLoop(make_registry(), llm=llm).run("重复"))
+        self.assertEqual(result.stopped, "done")
+        self.assertEqual(result.reply, "换了个说法")
         self.assertEqual(len(result.trace), 1)
 
     def test_argument_order_counts_as_repeat(self):
         llm = ScriptedLLM([
             call("echo", '{"text": "a"}'),
             call("echo", '{ "text" : "a" }', "c2"),
+            call("echo", '{"text":"a"}', "c3"),
         ])
         result = asyncio.run(AgentLoop(make_registry(), llm=llm).run("重复"))
         self.assertEqual(result.stopped, "repeated")

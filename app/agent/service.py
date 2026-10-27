@@ -237,7 +237,8 @@ class AgentService:
                     {
                         "ok": item["ok"],
                         "ms": item["duration_ms"],
-                        "args": item["arguments"][:200],
+                        "args": item["arguments"][:500],
+                        "error": item.get("error") or "",
                     },
                     ok=item["ok"],
                 )

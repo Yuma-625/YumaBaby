@@ -124,7 +124,8 @@ class AgentLoop:
 
             for call in resp.tool_calls:
                 signature = (call.name, _normalize_arguments(call.arguments))
-                if signature in seen:
+                seen[signature] = seen.get(signature, 0) + 1
+                if seen[signature] > 2:
                     logger.warning(f"检测到重复工具调用，终止: {call.name}")
                     return AgentResult(
                         "我好像卡在同一个操作上了，先停一下。",
@@ -134,7 +135,22 @@ class AgentLoop:
                         prompt_total,
                         completion_total,
                     )
-                seen[signature] = step
+                if seen[signature] == 2:
+                    # 第一次重复：把错误塞回给模型，让它换参数或直接回答
+                    logger.warning(f"重复工具调用，已跳过并提示模型: {call.name}")
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "content": json.dumps(
+                            {
+                                "ok": False,
+                                "error": "重复调用相同参数，已跳过。请换参数"
+                                         "（例如先读取文件、传 overwrite=true）或直接回答。",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    })
+                    continue
 
                 result = await self.tools.run(
                     call.name, call.arguments, allowed=allowed_tools
@@ -144,6 +160,7 @@ class AgentLoop:
                     "tool": call.name,
                     "arguments": call.arguments,
                     "ok": result.ok,
+                    "error": result.error,
                     "duration_ms": result.duration_ms,
                     "result": _preview(result.to_dict()),
                 }

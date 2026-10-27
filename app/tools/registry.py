@@ -119,6 +119,7 @@ class ToolRegistry:
             return result
 
         if allowed is not None and name not in allowed:
+            logger.warning("工具不在当前会话白名单 [%s]", name)
             return finish(ToolResult(False, error=f"当前会话不允许使用工具: {name}"))
 
         spec = self._specs.get(name)
@@ -132,6 +133,7 @@ class ToolRegistry:
 
         errors = validate_arguments(spec.parameters, args)
         if errors:
+            logger.warning("工具参数校验失败 [%s]: %s args=%s", name, errors, str(args)[:300])
             return finish(ToolResult(False, error="参数校验失败", details=errors))
 
         try:
