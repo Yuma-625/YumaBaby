@@ -1003,12 +1003,29 @@ class MemoryStore:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (group_id, user_id, sender_name, content, payload, created_at or _now()),
         )
-        # 只保留每个群最近 N 条
-        self._conn.execute(
-            "DELETE FROM group_context WHERE group_id=? AND id NOT IN ("
-            "SELECT id FROM group_context WHERE group_id=? ORDER BY id DESC LIMIT ?)",
-            (group_id, group_id, max(1, settings.GROUP_CONTEXT_MAX)),
+        # 普通群按条数滚动；只读/分析群按天保留，供日报使用
+        long_keep = (
+            group_id in settings.QQ_READONLY_GROUPS
+            or group_id in settings.GROUP_ANALYSIS_GROUPS
         )
+        if long_keep:
+            try:
+                tz = ZoneInfo(settings.TIMEZONE)
+            except Exception:
+                tz = ZoneInfo("UTC")
+            cutoff = (
+                datetime.now(tz) - timedelta(days=max(1, settings.GROUP_CONTEXT_KEEP_DAYS))
+            ).isoformat(timespec="seconds")
+            self._conn.execute(
+                "DELETE FROM group_context WHERE group_id=? AND created_at<?",
+                (group_id, cutoff),
+            )
+        else:
+            self._conn.execute(
+                "DELETE FROM group_context WHERE group_id=? AND id NOT IN ("
+                "SELECT id FROM group_context WHERE group_id=? ORDER BY id DESC LIMIT ?)",
+                (group_id, group_id, max(1, settings.GROUP_CONTEXT_MAX)),
+            )
         self._conn.commit()
 
     def recent_group_context(self, group_id: str, limit: int = 10,

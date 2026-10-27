@@ -112,9 +112,10 @@ class AgentServiceTest(unittest.TestCase):
         asyncio.run(service.handle(
             "昨晚发生什么了", chat_id="group:1", scope_type="group", scope_id="1",
         ))
-        system = llm.messages_seen[0][0]["content"]
-        self.assertIn("昨晚的群聊记录", system)
-        self.assertIn("昨晚打本到十二点", system)
+        messages = llm.messages_seen[0]
+        self.assertTrue(any(m["role"] == "system" and "昨晚的群聊记录" in m["content"]
+                            for m in messages))
+        self.assertIn("昨晚打本到十二点", messages[-2]["content"])
 
     def test_remember_flow(self):
         service, _ = self.make_service([

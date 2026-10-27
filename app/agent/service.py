@@ -139,10 +139,16 @@ class AgentService:
                     limit=settings.GROUP_HISTORY_LIMIT,
                 )
                 if entries:
-                    system_prompt += (
-                        f"\n\n{label}的群聊记录（按时间取出，可能不完整，仅供参考）：\n"
+                    # 放到 history 末尾、用户消息之前：比 system prompt 更靠近本轮，
+                    # 避免模型沿用历史里“没有记录”的说法。
+                    block = (
+                        f"【系统已查到{label}的群聊记录，共 {len(entries)} 条，"
+                        "以下面内容为准；不要再说没有记录。】\n"
                         + format_history(entries, settings.GROUP_HISTORY_CHARS)
                     )
+                    history = list(history)
+                    history.append({"role": "system", "content": block})
+                    system_prompt += "\n\n（群聊记录见本轮消息前的系统消息，以它为准。）"
                 else:
                     system_prompt += (
                         f"\n\n没有查到{label}的群聊记录，不要编造。"

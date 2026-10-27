@@ -80,6 +80,8 @@ class Settings:
     GROUP_CONTEXT_MAX: int = _env_int("GROUP_CONTEXT_MAX", 300)
     GROUP_CONTEXT_MINUTES: int = _env_int("GROUP_CONTEXT_MINUTES", 30)
     GROUP_CONTEXT_INJECT: int = _env_int("GROUP_CONTEXT_INJECT", 10)
+    # 只读/分析群按天保留，避免活跃群 300 条几十分钟就被覆盖
+    GROUP_CONTEXT_KEEP_DAYS: int = _env_int("GROUP_CONTEXT_KEEP_DAYS", 3)
     # 问“昨晚/昨天”时，按时间回看群聊记录
     GROUP_HISTORY_LIMIT: int = _env_int("GROUP_HISTORY_LIMIT", 60)
     GROUP_HISTORY_CHARS: int = _env_int("GROUP_HISTORY_CHARS", 3000)

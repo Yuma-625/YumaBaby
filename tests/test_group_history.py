@@ -91,6 +91,25 @@ class GroupHistoryFormatTest(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_analysis_group_keeps_more_than_max(self):
+        from app.config import settings
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp) / "m.db")
+            try:
+                with patch.object(settings, "GROUP_ANALYSIS_GROUPS", ["100"]), \
+                     patch.object(settings, "GROUP_CONTEXT_MAX", 2), \
+                     patch.object(settings, "GROUP_CONTEXT_KEEP_DAYS", 3):
+                    for i in range(6):
+                        store.add_group_context("100", "1", f"m{i}")
+                count = store._conn.execute(
+                    "SELECT COUNT(*) FROM group_context WHERE group_id='100'"
+                ).fetchone()[0]
+                self.assertEqual(count, 6)
+            finally:
+                store.close()
+
 
 if __name__ == "__main__":
     unittest.main()
