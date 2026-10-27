@@ -9,6 +9,7 @@ from app.agent.loop import AgentLoop
 from app.config import settings
 from app.memory.store import MemoryStore
 from app.tools.builtin import reset_scope, set_scope
+from app.utils import usage
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,11 @@ class AgentService:
             )
         finally:
             reset_scope(token)
+
+        try:
+            usage.record_context(chat_id, result.prompt_tokens)
+        except Exception:
+            logger.exception("记录上下文用量失败")
 
         reply = normalize_reply(result.reply)
         if auto_participate and reply.upper() in ("[SKIP]", "SKIP", "（跳过）", "跳过"):

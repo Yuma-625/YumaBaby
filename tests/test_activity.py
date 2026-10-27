@@ -1,8 +1,16 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from app.agent.admin import extract_reply_id, format_daily_summary, handle_admin_message, parse_rating
+from app.agent.admin import (
+    extract_reply_id,
+    format_daily_summary,
+    handle_admin_message,
+    is_llm_check,
+    parse_rating,
+)
+from app.config import settings
 from app.memory.store import MemoryStore
 
 
@@ -99,6 +107,29 @@ class AdminCommandTest(unittest.TestCase):
         text = handle_admin_message("今天干了什么", chat_id="user:1", store=self.store)
         self.assertIn("对话", text)
         self.assertIn("评价", text)
+
+    def test_llm_check_command(self):
+        from app.utils import usage
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(settings, "USAGE_LOG", str(Path(tmp) / "u.jsonl")):
+            usage.reset_state()
+            usage.record_usage("m", 1000, 100)
+            usage.record_context("user:1", 888)
+            text = handle_admin_message("llm check", chat_id="user:1", store=self.store)
+        usage.reset_state()
+
+        self.assertIn("LLM 用量", text)
+        self.assertIn("今日", text)
+        self.assertIn("累计", text)
+        self.assertIn("888", text)
+        self.assertIn("预算", text)
+
+    def test_llm_check_aliases(self):
+        self.assertTrue(is_llm_check("llm check"))
+        self.assertTrue(is_llm_check("LLMCheck"))
+        self.assertTrue(is_llm_check("llm 用量"))
+        self.assertFalse(is_llm_check("帮我查天气"))
 
     def test_normal_message_passes_through(self):
         self.assertIsNone(handle_admin_message("帮我查天气", chat_id="user:1", store=self.store))

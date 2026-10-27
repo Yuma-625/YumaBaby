@@ -131,7 +131,7 @@ system + history + user
 | [app/memory/store.py](app/memory/store.py) | SQLite：对话、记忆、行为日志、回复评价 |
 | [app/agent/service.py](app/agent/service.py) | 取历史 + 检索记忆 + 跑循环 + 落库 + 记录行为 |
 | [app/agent/context.py](app/agent/context.py) | 人设 + 记忆拼装 system prompt |
-| [app/agent/admin.py](app/agent/admin.py) | 管理员命令：好评/差评、今日活动 |
+| [app/agent/admin.py](app/agent/admin.py) | 管理员命令：好评/差评、今日活动、LLM 用量 |
 | [app/tools/builtin.py](app/tools/builtin.py) | `get_time`、`web_search`、`web_fetch`、`remember`、`recall`、`forget` |
 
 记忆的 scope 由代码注入，模型看不到也改不了：
@@ -161,6 +161,7 @@ system + history + user
 | `差` / `差评` / `不行` | 记差评 |
 | 引用某条回复再发 `好` / `差` | 评价被引用的那条 |
 | `今天干了什么` / `日报` | 返回当日收发条数、工具调用、好评差评、花费 |
+| `llm check` / `llm 用量` | 今日与累计 token、估算花费、当前会话上下文长度、预算状态 |
 
 HTTP：`GET /api/v1/activity?date=YYYY-MM-DD`（省略 date 为今天），返回同样的统计。
 

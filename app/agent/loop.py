@@ -28,6 +28,8 @@ class AgentResult:
     stopped: str                 # done | max_steps | repeated | llm_unavailable | error
     steps: int = 0
     trace: list[dict[str, Any]] = field(default_factory=list)
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class AgentLoop:
@@ -71,6 +73,8 @@ class AgentLoop:
 
         trace: list[dict[str, Any]] = []
         seen: dict[tuple[str, str], int] = {}
+        prompt_total = 0
+        completion_total = 0
 
         for step in range(1, self.max_steps + 1):
             try:
@@ -83,14 +87,26 @@ class AgentLoop:
                 )
             except Exception as e:
                 logger.exception("LLM 调用异常")
-                return AgentResult(f"（模型调用出错：{type(e).__name__}）", "error", step, trace)
+                return AgentResult(
+                    f"（模型调用出错：{type(e).__name__}）", "error", step, trace,
+                    prompt_total, completion_total,
+                )
 
             if resp is None:
-                return AgentResult("（模型暂时不可用，先不处理了）", "llm_unavailable", step, trace)
+                return AgentResult(
+                    "（模型暂时不可用，先不处理了）", "llm_unavailable", step, trace,
+                    prompt_total, completion_total,
+                )
+
+            prompt_total += resp.prompt_tokens or 0
+            completion_total += resp.completion_tokens or 0
 
             if not resp.tool_calls:
                 reply = (resp.content or "").strip()
-                return AgentResult(reply or "（模型没有返回内容）", "done", step, trace)
+                return AgentResult(
+                    reply or "（模型没有返回内容）", "done", step, trace,
+                    prompt_total, completion_total,
+                )
 
             messages.append({
                 "role": "assistant",
@@ -114,6 +130,8 @@ class AgentLoop:
                         "repeated",
                         step,
                         trace,
+                        prompt_total,
+                        completion_total,
                     )
                 seen[signature] = step
 
@@ -152,9 +170,17 @@ class AgentLoop:
             except Exception:
                 resp = None
             if resp and resp.content:
-                return AgentResult(resp.content.strip(), "max_steps", self.max_steps, trace)
+                prompt_total += resp.prompt_tokens or 0
+                completion_total += resp.completion_tokens or 0
+                return AgentResult(
+                    resp.content.strip(), "max_steps", self.max_steps, trace,
+                    prompt_total, completion_total,
+                )
 
-        return AgentResult("（步数用尽，先停在这里）", "max_steps", self.max_steps, trace)
+        return AgentResult(
+            "（步数用尽，先停在这里）", "max_steps", self.max_steps, trace,
+            prompt_total, completion_total,
+        )
 
 
 def _normalize_arguments(raw: str) -> str:

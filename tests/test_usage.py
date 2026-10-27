@@ -42,6 +42,7 @@ class UsageTest(unittest.TestCase):
         self.assertEqual(summary["calls"], 2)
         self.assertEqual(summary["prompt_tokens"], 3000)
         self.assertEqual(summary["completion_tokens"], 300)
+        self.assertEqual(summary["total_tokens"], 3300)
         self.assertAlmostEqual(summary["cost_cny"], 3000 / 1e6 * 2 + 300 / 1e6 * 8, places=6)
         self.assertEqual(summary["by_kind"]["analysis"]["calls"], 1)
         self.assertEqual(summary["level"], "ok")
@@ -69,6 +70,25 @@ class UsageTest(unittest.TestCase):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text("{not json}\n", encoding="utf-8")
         self.assertEqual(usage.today_summary()["calls"], 0)
+
+    def test_cumulative_across_restart(self):
+        usage.record_usage("m", 1000, 100)
+        usage.record_usage("m", 2000, 200)
+        usage.reset_state()
+        total = usage.cumulative_summary()
+        self.assertEqual(total["calls"], 2)
+        self.assertEqual(total["total_tokens"], 3300)
+
+    def test_context_roundtrip(self):
+        usage.record_context("user:1", 1234)
+        context = usage.last_context("user:1")
+        self.assertEqual(context["prompt_tokens"], 1234)
+        self.assertIsNone(usage.last_context("user:2"))
+
+    def test_estimate_tokens(self):
+        self.assertEqual(usage.estimate_tokens(""), 0)
+        self.assertGreater(usage.estimate_tokens("你好世界"), 3)
+        self.assertGreater(usage.estimate_tokens("hello world"), 1)
 
     def test_chat_skips_call_at_hard_limit(self):
         with patch.object(llm, "get_llm", return_value=object()), \

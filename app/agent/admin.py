@@ -5,7 +5,10 @@
 
 import logging
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
+from app.config import settings
 from app.memory.store import MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -13,6 +16,9 @@ logger = logging.getLogger(__name__)
 _POSITIVE = {"好", "好评", "赞", "不错", "棒", "可以", "行", "满意"}
 _NEGATIVE = {"不好", "差", "差评", "差劲", "不行", "烂", "垃圾", "不满意"}
 _SUMMARY_COMMANDS = {"今天干了什么", "今日总结", "今天做了什么", "日报", "今天做了什么"}
+_LLM_COMMANDS = {
+    "llmcheck", "llm状态", "llm用量", "llm查询", "token", "token用量", "用量",
+}
 
 _PUNCT = "。！!？?~～…、,，. "
 
@@ -30,6 +36,56 @@ def parse_rating(text: str) -> str | None:
     if value in _NEGATIVE:
         return "negative"
     return None
+
+
+def is_llm_check(text: str) -> bool:
+    value = _normalize(text).lower().replace(" ", "")
+    return value in _LLM_COMMANDS
+
+
+def _local_time(iso_utc: str) -> str:
+    try:
+        moment = datetime.fromisoformat(iso_utc)
+        tz = ZoneInfo(settings.TIMEZONE)
+        return moment.astimezone(tz).strftime("%H:%M")
+    except (TypeError, ValueError):
+        return "—"
+
+
+def format_llm_usage(store: MemoryStore, chat_id: str) -> str:
+    from app.utils import usage
+
+    today = usage.today_summary()
+    total = usage.cumulative_summary()
+    lines = ["LLM 用量"]
+    lines.append(
+        f"今日：{today['calls']} 次，输入 {today['prompt_tokens']:,} / "
+        f"输出 {today['completion_tokens']:,} tokens，约 ¥{today['cost_cny']:.4f}"
+    )
+    lines.append(
+        f"累计：{total['calls']} 次，输入 {total['prompt_tokens']:,} / "
+        f"输出 {total['completion_tokens']:,} tokens，约 ¥{total['cost_cny']:.4f}"
+    )
+
+    context = usage.last_context(chat_id)
+    if context:
+        lines.append(
+            f"本期上下文：最近一次请求 {context['prompt_tokens']:,} tokens"
+            f"（{_local_time(context['at'])}）"
+        )
+    else:
+        history = store.recent_messages(chat_id, settings.AGENT_HISTORY_TURNS * 2)
+        text = "\n".join(item.get("content", "") for item in history)
+        lines.append(
+            f"本期上下文：历史 {len(history)} 条，约 "
+            f"{usage.estimate_tokens(text):,} tokens（估算，尚未调用）"
+        )
+
+    lines.append(
+        f"预算：软 ¥{settings.DAILY_BUDGET_SOFT:g} / 硬 ¥{settings.DAILY_BUDGET_HARD:g}，"
+        f"状态 {today['level']}"
+    )
+    return "\n".join(lines)
 
 
 def format_daily_summary(store: MemoryStore, day: str | None = None) -> str:
@@ -75,6 +131,9 @@ def handle_admin_message(
     reply_to_id: str | None = None,
 ) -> str | None:
     """命中管理员命令则返回回复文本，否则返回 None 交给 Agent。"""
+    if is_llm_check(text):
+        return format_llm_usage(store, chat_id)
+
     rating = parse_rating(text)
     if rating is not None:
         target = store.find_message_by_platform_id(reply_to_id) if reply_to_id else None
