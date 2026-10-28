@@ -58,6 +58,7 @@ def strip_cq_images(text: str) -> tuple[str, int]:
 class _PendingChat:
     group_id: str | None = None
     user_id: str | None = None
+    sender_name: str = ""
     reply_msg_id: str | None = None
     auto: bool = False
     texts: list[str] = field(default_factory=list)
@@ -413,6 +414,7 @@ class OfficialQQAdapter(BaseAdapter):
             text, group_id=group_id, user_id=user_id,
             reply_msg_id=parsed["message_id"], auto=auto,
             at_targets=parsed["at_targets"], attachments=parsed["attachments"],
+            sender_name=parsed["name"],
         )
 
     async def _handle_private(self, data: dict):
@@ -489,11 +491,13 @@ class OfficialQQAdapter(BaseAdapter):
     def _enqueue(self, text: str, *, group_id: str | None = None,
                  user_id: str | None = None, reply_msg_id: str | None = None,
                  auto: bool = False, at_targets: list[dict[str, str]] | None = None,
-                 attachments: list[dict[str, str]] | None = None) -> None:
+                 attachments: list[dict[str, str]] | None = None,
+                 sender_name: str = "") -> None:
         if settings.DEBOUNCE_SECONDS <= 0:
             coro = (
                 self._process_group_reply(group_id, user_id or "", text,
-                                          reply_msg_id, auto, at_targets, attachments)
+                                          reply_msg_id, auto, at_targets, attachments,
+                                          sender_name)
                 if group_id else
                 self._process_private_reply(user_id or "", text, reply_msg_id, attachments)
             )
@@ -503,7 +507,10 @@ class OfficialQQAdapter(BaseAdapter):
         key = self._pending_key(group_id, user_id)
         entry = self._pending.get(key)
         if entry is None:
-            entry = _PendingChat(group_id=group_id, user_id=user_id, auto=auto)
+            entry = _PendingChat(
+                group_id=group_id, user_id=user_id,
+                sender_name=sender_name, auto=auto,
+            )
             self._pending[key] = entry
         else:
             entry.auto = entry.auto and auto
@@ -546,6 +553,7 @@ class OfficialQQAdapter(BaseAdapter):
             await self._process_group_reply(
                 entry.group_id, entry.user_id or "", text, entry.reply_msg_id,
                 entry.auto, entry.at_targets, entry.attachments,
+                entry.sender_name,
             )
         else:
             await self._process_private_reply(
@@ -580,10 +588,12 @@ class OfficialQQAdapter(BaseAdapter):
     async def _process_group_reply(self, group_id: str, user_id: str, text: str,
                                    reply_msg_id: str | None = None, auto: bool = False,
                                    at_targets: list[dict[str, str]] | None = None,
-                                   attachments: list[dict[str, str]] | None = None):
+                                   attachments: list[dict[str, str]] | None = None,
+                                   sender_name: str = ""):
         result = await self.on_message(text, {
             "group_id": group_id,
             "user_id": user_id,
+            "sender_name": sender_name,
             "reply_to_id": reply_msg_id,
             "auto_participate": auto,
             "at_targets": at_targets or [],

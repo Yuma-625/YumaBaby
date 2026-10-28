@@ -67,6 +67,36 @@ class AgentServiceTest(unittest.TestCase):
         service = AgentService(loop, self.store, persona=persona or StubPersona())
         return service, llm
 
+    def test_group_context_keeps_speakers_apart(self):
+        self.store.add_group_context(
+            "G1", "uA", "A 先说的话", [], "用户A",
+        )
+        self.store.add_group_context(
+            "G1", "uB", "B 上一句", [], "用户B",
+        )
+        service, llm = self.make_service([answer("收到")])
+        asyncio.run(service.handle(
+            "现在 @ 你", chat_id="group:G1", scope_type="group",
+            scope_id="G1", user_id="uB", sender_name="用户B",
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("用户A: A 先说的话", system)
+        self.assertIn("用户B: B 上一句", system)
+        self.assertIn("当前发言人是 用户B（uB）", system)
+        self.assertIn("B 上一句", system)
+
+    def test_current_message_does_not_hide_same_substring_context(self):
+        self.store.add_group_context(
+            "G1", "uB", "在吗", [], "用户B",
+        )
+        service, llm = self.make_service([answer("在")])
+        asyncio.run(service.handle(
+            "在吗 @小弗", chat_id="group:G1", scope_type="group",
+            scope_id="G1", user_id="uB", sender_name="用户B",
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("- 用户B: 在吗", system)
+
     def test_compact_summary_is_in_prompt(self):
         self.store.upsert_chat_summary("user:1", "用户之前说喜欢猫", 0)
         service, llm = self.make_service([answer("好")])

@@ -1084,6 +1084,20 @@ class MemoryStore:
             result.append(item)
         return result
 
+    def group_context_from_user(self, group_id: str, user_id: str,
+                                limit: int = 3) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT user_id, sender_name, content, attachments, created_at "
+            "FROM group_context WHERE group_id=? AND user_id=? ORDER BY id DESC LIMIT ?",
+            (group_id, user_id, max(1, limit)),
+        ).fetchall()
+        result = []
+        for row in reversed(rows):
+            item = dict(row)
+            item["attachments"] = _load_attachments(item.get("attachments"))
+            result.append(item)
+        return result
+
     def group_context_between(self, group_id: str, start: str, end: str,
                               limit: int = 60) -> list[dict[str, Any]]:
         rows = self._conn.execute(
