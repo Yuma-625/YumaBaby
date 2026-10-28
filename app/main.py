@@ -36,6 +36,20 @@ async def on_qq_message(message: str, context: dict) -> str:
     # 管理员私聊和群聊都生效
     store = shared.memory_store
     if store is not None and settings.QQ_PERSONA_ADMIN == user_id:
+        # 不走模型的主动发送指令，保证管理员随时能测通道
+        for prefix in ("发给我 ", "发给我：", "给我发 ", "主动发 "):
+            if message.startswith(prefix):
+                text = message[len(prefix):].strip()
+                adapter = shared.qq_adapter
+                if not text:
+                    return "要发什么？格式：发给我 测试内容"
+                if adapter is None or not getattr(adapter, "is_connected", False):
+                    return "QQ 适配器未连接，发不出去。"
+                result = await adapter.send_private_msg(user_id, text)
+                if result.get("status") == "ok":
+                    return f"已主动发给你：{text}"
+                return f"发送失败：{result.get('error') or result.get('data')}"
+
         admin_chat_id = f"group:{group_id}" if group_id else f"user:{user_id}"
         from app.agent.admin import handle_admin_message
 

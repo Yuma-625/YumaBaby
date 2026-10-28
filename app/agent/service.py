@@ -334,6 +334,12 @@ class AgentService:
                 from app.tools.sandbox import TOOL_NAMES
 
                 allowed_tools |= TOOL_NAMES
+            system_prompt += (
+                "\n\n你是管理员，拥有 send_message 工具，可以主动发消息。"
+                "当管理员说“给我发一条”“发到群里”“主动发”时，"
+                "不要回答做不到，直接调用 send_message；"
+                "target 默认 current，发给管理员用 admin，发当前群用 group。"
+            )
         try:
             result = await self.loop.run(
                 text, system_prompt=system_prompt, history=history,
