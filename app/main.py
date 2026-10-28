@@ -134,7 +134,10 @@ def on_reply_sent(chat_id: str, platform_message_id: str) -> None:
 def on_group_seen(group_id: str, user_id: str, text: str,
                   sender_name: str, attachments: list) -> None:
     """所有目标群消息都记一份短期上下文，供被 @ 时回看。"""
-    if shared.memory_store is None or not settings.GROUP_CONTEXT_ENABLED:
+    if shared.memory_store is None:
+        return
+    shared.memory_store.upsert_group_member(group_id, user_id, sender_name)
+    if not settings.GROUP_CONTEXT_ENABLED:
         return
     if not text.strip() and not attachments:
         return

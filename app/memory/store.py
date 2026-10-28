@@ -154,6 +154,15 @@ CREATE TABLE IF NOT EXISTS tone_rules (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS group_members (
+    group_id TEXT NOT NULL,
+    member_openid TEXT NOT NULL,
+    username TEXT DEFAULT '',
+    last_seen TEXT NOT NULL,
+    message_count INTEGER DEFAULT 1,
+    PRIMARY KEY(group_id, member_openid)
+);
+
 CREATE TABLE IF NOT EXISTS group_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id TEXT NOT NULL,
@@ -1425,6 +1434,39 @@ class MemoryStore:
         cur = self._conn.execute("DELETE FROM tone_rules WHERE tone=?", (tone,))
         self._conn.commit()
         return cur.rowcount
+
+    # ------------------------------------------------------------------ 群成员目录
+
+    def upsert_group_member(self, group_id: str, member_openid: str,
+                            username: str = "") -> None:
+        now = _now()
+        self._conn.execute(
+            "INSERT INTO group_members(group_id, member_openid, username, last_seen, message_count) "
+            "VALUES (?, ?, ?, ?, 1) ON CONFLICT(group_id, member_openid) DO UPDATE SET "
+            "username=CASE WHEN excluded.username != '' THEN excluded.username ELSE username END, "
+            "last_seen=excluded.last_seen, message_count=message_count+1",
+            (group_id, member_openid, username or "", now),
+        )
+        self._conn.commit()
+
+    def search_group_members(self, group_id: str, query: str,
+                             limit: int = 10) -> list[dict[str, Any]]:
+        query = (query or "").strip()
+        if not query:
+            return []
+        exact = self._conn.execute(
+            "SELECT * FROM group_members WHERE group_id=? AND username=? "
+            "ORDER BY last_seen DESC LIMIT ?",
+            (group_id, query, max(1, limit)),
+        ).fetchall()
+        if exact:
+            return [dict(r) for r in exact]
+        rows = self._conn.execute(
+            "SELECT * FROM group_members WHERE group_id=? AND username LIKE ? "
+            "ORDER BY last_seen DESC LIMIT ?",
+            (group_id, f"%{query}%", max(1, limit)),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------ 日报
 

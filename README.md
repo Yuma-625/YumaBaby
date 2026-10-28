@@ -321,6 +321,28 @@ QQ_OFFICIAL_BOT_OPENID=      # READY 后自动获取，也可手动填
 
 实测：左右红蓝分色图，模型回答「左边红色，右边蓝色」。
 
+### 本地群成员目录
+
+群消息会自动记录：
+
+```text
+group_id + member_openid + username + last_seen + message_count
+```
+
+所以不需要 @ 也能按昵称找人：
+
+```text
+跟奶坤打个招呼
+帮我叫一下奶坤
+```
+
+- 只查**当前群**
+- 只认识在群里发过言的人
+- 昵称唯一 → 找到 `member_openid`，回复里自动 @
+- 多个同名 → 先问清楚，不随便 @
+- 找不到 → 直说，不编造
+- 官方机器人拿不到真实 QQ 号，@ 用的是 `member_openid`
+
 ### 表情标签与按语气发送
 
 表情表新增 `tags`、`use_count`、`last_used_at`。

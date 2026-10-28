@@ -194,6 +194,39 @@ class AgentService:
                     "\n\n用户发来了图片，请结合图片内容回答。"
                     "看不清或图里没有相关信息就直说，不要编造。"
                 )
+
+        at_targets = list(at_targets or [])
+        if scope_type == "group" and not at_targets:
+            from app.agent.member_lookup import resolve_name
+            name, members = resolve_name(self.store, scope_id, text)
+            if name and len(members) == 1:
+                member = members[0]
+                at_targets.append({
+                    "qq": member["member_openid"],
+                    "name": member.get("username") or name,
+                })
+                system_prompt += (
+                    f"\n\n用户想让你和「{member.get('username') or name}」打招呼，"
+                    f"但没有真正 @ 到对方。已经从群成员目录找到他的 openid："
+                    f"{member['member_openid']}。"
+                    f"回复里用 [[at:{member['member_openid']}]] 来 @ 他。"
+                )
+            elif name and len(members) > 1:
+                same = "、".join(
+                    f"{m.get('username') or name}({m['member_openid']})"
+                    for m in members[:5]
+                )
+                system_prompt += (
+                    f"\n\n用户提到「{name}」，但群里有多个同名成员：{same}。"
+                    "先问清楚是哪一个，不要随便 @。"
+                )
+            elif name:
+                system_prompt += (
+                    f"\n\n用户提到「{name}」，但本地群成员目录里没有找到。"
+                    "不要编造 openid 或假装 @ 成功，直接说明找不到，"
+                    "让对方先在群里发一句话，或直接 @ 对方。"
+                )
+
         if at_targets:
             pairs = [
                 f"{t.get('name') or t.get('qq')}(QQ:{t.get('qq')})"
