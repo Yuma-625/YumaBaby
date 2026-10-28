@@ -67,6 +67,30 @@ class AgentServiceTest(unittest.TestCase):
         service = AgentService(loop, self.store, persona=persona or StubPersona())
         return service, llm
 
+    def test_group_analysis_includes_all_senders(self):
+        self.store.add_group_context("G1", "uA", "A 说今晚打本", [], "用户A")
+        self.store.add_group_context("G1", "uB", "B 说不想打", [], "用户B")
+        service, llm = self.make_service([answer("大家在聊打本")])
+        asyncio.run(service.handle(
+            "分析一下刚刚群里聊了啥", chat_id="group:G1", scope_type="group",
+            scope_id="G1", user_id="uB", sender_name="用户B",
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("用户A", system)
+        self.assertIn("用户B", system)
+        self.assertIn("不是只分析当前用户", system)
+        self.assertIn("按发送者归纳", system)
+
+    def test_group_analysis_warns_when_only_current_user(self):
+        self.store.add_group_context("G1", "uB", "只有我说的", [], "用户B")
+        service, llm = self.make_service([answer("只有你")])
+        asyncio.run(service.handle(
+            "分析一下刚刚群里聊了啥", chat_id="group:G1", scope_type="group",
+            scope_id="G1", user_id="uB", sender_name="用户B",
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("只收到当前用户", system)
+
     def test_name_reference_resolves_group_member_without_mention(self):
         self.store.upsert_group_member("G1", "u2", "奶坤")
         service, llm = self.make_service([answer("收到")])
