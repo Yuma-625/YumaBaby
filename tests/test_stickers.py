@@ -11,16 +11,19 @@ from app.config import settings
 from app.memory.store import MemoryStore
 from app.stickers import (
     approve_candidate,
+    classify_tone,
     collect_candidates,
     handle_sticker_admin,
     handle_sticker_command,
     handle_sticker_send,
     is_send_command,
     is_sticker_command,
+    maybe_reply_sticker,
     parse_send_count,
     parse_send_id,
     parse_send_ids,
     parse_sticker_name,
+    parse_sticker_tags,
     reject_candidate,
     save_sticker,
 )
@@ -59,6 +62,69 @@ class StickerCommandTest(unittest.TestCase):
             p.stop()
         self.store.close()
         self.tmp.cleanup()
+
+    def test_parse_tags(self):
+        self.assertEqual(parse_sticker_tags("命名无语 标签无语,狗"), "无语,狗")
+        self.assertEqual(parse_sticker_tags("标签：开心、摸鱼"), "开心,摸鱼")
+        self.assertEqual(parse_sticker_tags("命名无语"), "")
+
+    def test_classify_tone(self):
+        self.assertIn("无语", classify_tone("真的服了，太离谱"))
+        self.assertIn("开心", classify_tone("哈哈笑死"))
+        self.assertIn("傲娇", classify_tone("哼，才不要"))
+        self.assertEqual(classify_tone("今天几号"), set())
+
+    def test_tags_saved_and_reply_sticker(self):
+        asyncio.run(save_sticker(
+            self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+            text="存这个表情包 命名无语 标签无语,狗",
+        ))
+        sticker = self.store.list_stickers()[0]
+        self.assertEqual(sticker["tags"], "无语,狗")
+
+        with (
+            patch.object(settings, "STICKER_SEND_MODE", "reply"),
+            patch.object(settings, "STICKER_SEND_CHANCE", 1.0),
+            patch.object(settings, "STICKER_SEND_COOLDOWN_SECONDS", 0),
+            patch.object(settings, "STICKER_SEND_DAILY_LIMIT", 100),
+            patch.object(settings, "STICKER_SEND_MIN_CHARS", 1),
+        ):
+            cq = maybe_reply_sticker(self.store, "真的无语", group_id="100")
+        self.assertTrue(cq.startswith("[CQ:image"))
+        self.assertEqual(self.store.get_sticker(sticker["id"])["use_count"], 1)
+
+    def test_reply_sticker_skips_when_tone_not_matched(self):
+        asyncio.run(save_sticker(
+            self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+            text="存这个表情包 命名无语 标签无语",
+        ))
+        with (
+            patch.object(settings, "STICKER_SEND_MODE", "reply"),
+            patch.object(settings, "STICKER_SEND_CHANCE", 1.0),
+            patch.object(settings, "STICKER_SEND_COOLDOWN_SECONDS", 0),
+            patch.object(settings, "STICKER_SEND_DAILY_LIMIT", 100),
+            patch.object(settings, "STICKER_SEND_MIN_CHARS", 1),
+        ):
+            self.assertEqual(
+                maybe_reply_sticker(self.store, "今天几号", group_id="100"), ""
+            )
+
+    def test_admin_sets_tags(self):
+        asyncio.run(save_sticker(
+            self.store,
+            attachments=[{"type": "image", "url": data_uri()}],
+            group_id="100", user_id="1293585554",
+            text="存这个表情包 命名无语",
+        ))
+        reply = handle_sticker_admin("表情标签 1 无语,狗", self.store, "1293585554")
+        self.assertIn("已给 #1 打标签", reply)
+        self.assertEqual(self.store.get_sticker(1)["tags"], "无语,狗")
+        listing = handle_sticker_admin("表情列表", self.store, "1293585554")
+        self.assertIn("无语,狗", listing)
 
     def test_collect_and_approve_candidate(self):
         added = asyncio.run(collect_candidates(

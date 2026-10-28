@@ -319,6 +319,38 @@ QQ_OFFICIAL_BOT_OPENID=      # READY 后自动获取，也可手动填
 
 实测：左右红蓝分色图，模型回答「左边红色，右边蓝色」。
 
+### 表情标签与按语气发送
+
+表情表新增 `tags`、`use_count`、`last_used_at`。
+
+管理员私聊：
+
+```text
+表情列表
+表情标签 3 无语,狗
+收 3 命名大狗无语 标签无语,狗
+```
+
+自动发送默认关闭。打开后走 `reply` 模式：
+
+```dotenv
+STICKER_SEND_MODE=reply          # off/manual | reply | both
+STICKER_SEND_CHANCE=0.10
+STICKER_SEND_COOLDOWN_SECONDS=900
+STICKER_SEND_DAILY_LIMIT=15
+STICKER_SEND_MIN_CHARS=4
+```
+
+流程：
+
+1. 正常文字回复生成后，用 `classify_tone` 判断语气（无语/开心/傲娇/得意/疑惑/丧）
+2. 只挑标签与语气有交集的表情
+3. 按 `1/(1+使用次数)` 和最近使用时间加权
+4. 通过群冷却、每日上限、最短回复长度后才发
+5. 作为同一条被动回复的图片消息发出，文字回复本身不变
+
+没有匹配标签时宁可不发，不随机硬塞。
+
 ### 群聊短期上下文
 
 群里所有消息都会进一个滚动缓冲（`group_context` 表），被 @ 或触发时注入最近 10 条：

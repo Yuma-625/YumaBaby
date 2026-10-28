@@ -115,6 +115,10 @@ class Settings:
     # 发送策略：manual=只响应指令；future: random/keyword
     STICKER_SEND_MODE: str = os.getenv("STICKER_SEND_MODE", "manual").strip().lower()
     STICKER_SEND_CHANCE: float = float(os.getenv("STICKER_SEND_CHANCE", "0") or 0)
+    STICKER_SEND_COOLDOWN_SECONDS: int = _env_int("STICKER_SEND_COOLDOWN_SECONDS", 900)
+    STICKER_SEND_DAILY_LIMIT: int = _env_int("STICKER_SEND_DAILY_LIMIT", 15)
+    STICKER_SEND_MIN_CHARS: int = _env_int("STICKER_SEND_MIN_CHARS", 4)
+    STICKER_SEND_GROUPS: list[str] = _env_list("STICKER_SEND_GROUPS")
     # 连发合并：同一会话在这个窗口内的多条消息合并成一次处理；0 = 关闭
     DEBOUNCE_SECONDS: float = float(os.getenv("DEBOUNCE_SECONDS", "1.5") or 0)
     DEBOUNCE_MAX_CHARS: int = _env_int("DEBOUNCE_MAX_CHARS", 400)

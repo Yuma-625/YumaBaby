@@ -203,6 +203,9 @@ _MIGRATIONS = [
     ("memories", "source_message_ids", "TEXT DEFAULT '[]'"),
     ("memories", "topic_id", "INTEGER"),
     ("stickers", "name", "TEXT DEFAULT ''"),
+    ("stickers", "tags", "TEXT DEFAULT ''"),
+    ("stickers", "use_count", "INTEGER DEFAULT 0"),
+    ("stickers", "last_used_at", "TEXT"),
 ]
 
 
@@ -1108,10 +1111,11 @@ class MemoryStore:
 
     def save_sticker(self, file_hash: str, path: str, ctype: str = "",
                      summary: str = "", source_group: str = "",
-                     source_user: str = "", name: str = "") -> tuple[int, bool, bool]:
+                     source_user: str = "", name: str = "",
+                     tags: str = "") -> tuple[int, bool, bool]:
         """返回 (id, 是否新插入, 是否改名)。按内容 hash 去重。"""
         existing = self._conn.execute(
-            "SELECT id, name FROM stickers WHERE hash=?", (file_hash,)
+            "SELECT id, name, tags FROM stickers WHERE hash=?", (file_hash,)
         ).fetchone()
         if existing:
             renamed = False
@@ -1119,16 +1123,36 @@ class MemoryStore:
                 self._conn.execute(
                     "UPDATE stickers SET name=? WHERE id=?", (name, existing["id"])
                 )
-                self._conn.commit()
                 renamed = True
+            if tags:
+                self._conn.execute(
+                    "UPDATE stickers SET tags=? WHERE id=?", (tags, existing["id"])
+                )
+            self._conn.commit()
             return int(existing["id"]), False, renamed
         cur = self._conn.execute(
-            "INSERT INTO stickers(hash, path, ctype, summary, source_group, source_user, name, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (file_hash, path, ctype, summary, source_group, source_user, name, _now()),
+            "INSERT INTO stickers(hash, path, ctype, summary, source_group, source_user, "
+            "name, tags, use_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+            (file_hash, path, ctype, summary, source_group, source_user,
+             name, tags, _now()),
         )
         self._conn.commit()
         return int(cur.lastrowid), True, bool(name)
+
+    def set_sticker_tags(self, sticker_id: int, tags: str) -> bool:
+        cur = self._conn.execute(
+            "UPDATE stickers SET tags=? WHERE id=?", (tags, sticker_id)
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def mark_sticker_used(self, sticker_id: int) -> None:
+        self._conn.execute(
+            "UPDATE stickers SET use_count=COALESCE(use_count, 0)+1, last_used_at=? "
+            "WHERE id=?",
+            (_now(), sticker_id),
+        )
+        self._conn.commit()
 
     def get_sticker_by_name(self, name: str) -> dict[str, Any] | None:
         row = self._conn.execute(
@@ -1361,6 +1385,20 @@ class MemoryStore:
                 (kind, chat_id, _today()),
             ).fetchone()
         return int(row["n"])
+
+    def last_event_at(self, kind: str, chat_id: str | None = None) -> str | None:
+        if chat_id is None:
+            row = self._conn.execute(
+                "SELECT created_at FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
+                (kind,),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT created_at FROM events WHERE kind=? AND chat_id=? "
+                "ORDER BY id DESC LIMIT 1",
+                (kind, chat_id),
+            ).fetchone()
+        return str(row["created_at"]) if row else None
 
     # ------------------------------------------------------------------ 日报
 

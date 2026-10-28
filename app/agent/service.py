@@ -247,6 +247,15 @@ class AgentService:
             logger.exception("调度记忆提炼失败")
         self._log_events(chat_id, result)
         self._maybe_learn(text, reply)
+        if scope_type == "group" and not auto_participate:
+            try:
+                from app.stickers import maybe_reply_sticker
+
+                sticker = maybe_reply_sticker(self.store, reply, group_id=scope_id)
+                if sticker:
+                    return f"{reply}\n{sticker}"
+            except Exception:
+                logger.exception("按语气选择表情失败")
         return reply
 
     def _log_events(self, chat_id: str, result) -> None:

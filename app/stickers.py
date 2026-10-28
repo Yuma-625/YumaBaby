@@ -8,6 +8,7 @@ import hashlib
 import logging
 import random
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -34,6 +35,20 @@ def parse_sticker_name(text: str) -> str:
     if not match:
         return ""
     return match.group(1).strip("「」『』\"'“”")
+
+
+def parse_sticker_tags(text: str) -> str:
+    match = re.search(r"标签\s*[:：]?\s*(.+)$", text or "")
+    if not match:
+        return ""
+    raw = match.group(1).strip()
+    raw = re.split(r"命名", raw)[0]
+    tags = []
+    for chunk in re.split(r"[,，、/\s]+", raw):
+        chunk = chunk.strip("「」『』\"'“”")
+        if chunk and chunk not in tags:
+            tags.append(chunk)
+    return ",".join(tags[:10])
 
 
 def is_sticker_command(text: str) -> bool:
@@ -122,6 +137,7 @@ async def save_sticker(
     data, ctype = downloaded
     digest = hashlib.sha1(data).hexdigest()
     name = parse_sticker_name(text)
+    tags = parse_sticker_tags(text)
     out_dir = Path(settings.STICKERS_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
     ext = _ALLOWED_CTYPES[ctype]
@@ -151,6 +167,8 @@ async def save_sticker(
         elif not target.exists():
             target.write_bytes(data)
         store.set_sticker_path_name(existing["id"], str(target), final_name)
+        if tags:
+            store.set_sticker_tags(int(existing["id"]), tags)
         sticker_id, inserted = int(existing["id"]), False
         renamed = bool(name and name != (existing.get("name") or ""))
         label = final_name or (attachment.get("summary") or "表情").strip("[]")
@@ -166,6 +184,7 @@ async def save_sticker(
             source_group=group_id or "",
             source_user=user_id,
             name=name,
+            tags=tags,
         )
         label = name or (attachment.get("summary") or "表情").strip("[]")
 
@@ -255,7 +274,8 @@ async def collect_candidates(
     return added
 
 
-def approve_candidate(store: MemoryStore, candidate_id: int, name: str = "") -> str:
+def approve_candidate(store: MemoryStore, candidate_id: int, name: str = "",
+                      tags: str = "") -> str:
     candidate = store.get_sticker_candidate(candidate_id)
     if candidate is None:
         return f"没有 #{candidate_id} 这个候选。"
@@ -277,6 +297,7 @@ def approve_candidate(store: MemoryStore, candidate_id: int, name: str = "") -> 
         source_group=candidate.get("group_id") or "",
         source_user=candidate.get("user_id") or "",
         name=final_name,
+        tags=tags,
     )
     store.set_sticker_candidate_status(candidate_id, "approved", str(target))
     if inserted:
@@ -310,12 +331,35 @@ def handle_sticker_admin(text: str, store: MemoryStore, user_id: str) -> str | N
         lines.append("回复「收 1 命名xx」或「拒 1」。")
         return "\n".join(lines)
 
-    match = re.match(r"^(?:收|通过|采纳)\s*#?(\d+)(?:\s*命名\s*(.+))?$", value)
+    match = re.match(r"^(?:收|通过|采纳)\s*#?(\d+)(.*)$", value)
     if match:
-        return approve_candidate(store, int(match.group(1)), (match.group(2) or "").strip())
+        tail = match.group(2) or ""
+        return approve_candidate(
+            store, int(match.group(1)),
+            parse_sticker_name(tail), parse_sticker_tags(tail),
+        )
     match = re.match(r"^(?:拒|拒绝|不要)\s*#?(\d+)$", value)
     if match:
         return reject_candidate(store, int(match.group(1)))
+
+    if value in ("表情列表", "表情库"):
+        stickers = store.list_stickers(limit=20)
+        if not stickers:
+            return "表情库是空的。"
+        lines = [f"表情库 {store.count_stickers()} 个："]
+        for item in sorted(stickers, key=lambda s: s["id"]):
+            tags = item.get("tags") or "无标签"
+            lines.append(
+                f"#{item['id']} {item.get('name') or '未命名'} | {tags} | 用过 {item.get('use_count') or 0} 次"
+            )
+        return "\n".join(lines)
+
+    match = re.match(r"^表情标签\s*#?(\d+)\s+(.+)$", value)
+    if match:
+        tags = parse_sticker_tags("标签 " + match.group(2)) or match.group(2).strip()
+        if not store.set_sticker_tags(int(match.group(1)), tags):
+            return f"没有 #{match.group(1)} 这个表情。"
+        return f"已给 #{match.group(1)} 打标签：{tags}"
     return None
 
 
@@ -513,8 +557,110 @@ async def handle_sticker_send(
         cq = _build_image_cq(sticker)
         if cq:
             messages.append(cq)
+            store.mark_sticker_used(int(sticker["id"]))
             logger.info(f"发送表情 #{sticker['id']}")
     if not messages:
         return "这些表情文件不在了或太大，发不出来。"
     return "".join(messages)
+
+
+# ---------------------------------------------------------------- 回复语气选表情
+
+_TONE_RULES = (
+    ("无语", ("无语", "服了", "离谱", "真会", "懒得", "算了", "汗")),
+    ("开心", ("哈哈", "笑死", "开心", "好耶", "嘿嘿", "乐")),
+    ("傲娇", ("哼", "才不", "略", "笨蛋", "不要")),
+    ("得意", ("牛", "厉害", "不错", "可以啊", "当然", "包的")),
+    ("疑惑", ("？", "?", "什么", "真的假的", "啊")),
+    ("丧", ("唉", "难过", "惨", "寄", "累")),
+)
+
+
+def classify_tone(text: str) -> set[str]:
+    """轻量语气分类：不额外调模型，先覆盖常见口癖。"""
+    value = text or ""
+    tones: set[str] = set()
+    for tone, words in _TONE_RULES:
+        if any(word in value for word in words):
+            tones.add(tone)
+    return tones
+
+
+def _age_seconds(iso: str | None) -> float | None:
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds())
+    except ValueError:
+        return None
+
+
+def _sticker_tags(sticker: dict) -> set[str]:
+    raw = str(sticker.get("tags") or "")
+    return {item.strip() for item in re.split(r"[,，、/\s]+", raw) if item.strip()}
+
+
+def maybe_reply_sticker(store: MemoryStore, reply: str, *,
+                        group_id: str) -> str:
+    """reply 模式：按回复语气匹配标签，命中才发；默认关闭。"""
+    mode = settings.STICKER_SEND_MODE
+    if mode not in ("reply", "both", "random"):
+        return ""
+    if not reply or "[CQ:image" in reply:
+        return ""
+    if group_id in settings.QQ_READONLY_GROUPS:
+        return ""
+    if settings.STICKER_SEND_GROUPS and group_id not in settings.STICKER_SEND_GROUPS:
+        return ""
+    if len(reply.strip()) < settings.STICKER_SEND_MIN_CHARS:
+        return ""
+    if settings.STICKER_SEND_CHANCE <= 0:
+        return ""
+    if random.random() >= settings.STICKER_SEND_CHANCE:
+        return ""
+
+    chat_id = f"group:{group_id}"
+    if settings.STICKER_SEND_COOLDOWN_SECONDS > 0:
+        age = _age_seconds(store.last_event_at("sticker_send", chat_id))
+        if age is not None and age < settings.STICKER_SEND_COOLDOWN_SECONDS:
+            return ""
+    if store.count_events_today("sticker_send", chat_id) >= settings.STICKER_SEND_DAILY_LIMIT:
+        return ""
+
+    tones = classify_tone(reply)
+    if not tones:
+        return ""
+    candidates = [
+        sticker for sticker in store.list_stickers(limit=200)
+        if _sticker_tags(sticker) & tones
+    ]
+    if not candidates:
+        return ""
+
+    weights = []
+    for sticker in candidates:
+        age = _age_seconds(sticker.get("last_used_at"))
+        recency = 1.0
+        if age is not None and age < 3600:
+            recency = 0.2
+        elif age is not None and age < 86400:
+            recency = 0.6
+        weights.append(recency / (1.0 + int(sticker.get("use_count") or 0)))
+
+    sticker = random.choices(candidates, weights=weights, k=1)[0]
+    cq = _build_image_cq(sticker)
+    if not cq:
+        return ""
+    store.mark_sticker_used(int(sticker["id"]))
+    store.add_event(
+        "sticker_send",
+        name=str(sticker.get("name") or f"#{sticker['id']}"),
+        chat_id=chat_id,
+        detail={"sticker_id": sticker["id"], "tones": sorted(tones), "mode": mode},
+    )
+    logger.info("按语气发表情 #%s tones=%s", sticker["id"], sorted(tones))
+    return cq
 
