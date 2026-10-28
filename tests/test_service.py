@@ -290,6 +290,11 @@ class AgentServiceTest(unittest.TestCase):
         ))
         self.assertIn("功能列表", reply)
         self.assertEqual(llm.messages_seen, [])
+        reply = asyncio.run(service.handle(
+            "你能干些啥", chat_id="user:1", scope_type="user", scope_id="1",
+        ))
+        self.assertIn("功能列表", reply)
+        self.assertEqual(llm.messages_seen, [])
 
     def test_image_is_sent_as_multimodal_content(self):
         service, llm = self.make_service([answer("红色的")])

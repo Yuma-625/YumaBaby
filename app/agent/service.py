@@ -14,6 +14,7 @@ from app.utils import usage
 logger = logging.getLogger(__name__)
 
 _HELP_REPLIES = {"帮助", "help", "功能"}
+_HELP_HINTS = ("你能干", "能做什么", "能干啥", "会什么", "有什么功能", "skills")
 _WHITESPACE = re.compile(r"\s+")
 
 
@@ -72,7 +73,9 @@ class AgentService:
             return ""
 
         # 确定性命令不花 token
-        if text.lower() in _HELP_REPLIES:
+        if text.lower() in _HELP_REPLIES or any(
+            hint in text for hint in _HELP_HINTS
+        ):
             from app.skills.chat.handler import build_help_text
             reply = build_help_text()
             self._save(chat_id, text, reply, attachments)
