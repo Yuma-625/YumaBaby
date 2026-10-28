@@ -261,6 +261,26 @@ class OfficialQQAdapter(BaseAdapter):
     # ------------------------------------------------------------------ 收事件
 
     async def _handle_event(self, event: str, data: dict):
+        if event in ("GROUP_ADD_ROBOT", "GROUP_DEL_ROBOT"):
+            group_id = str(data.get("group_openid") or "")
+            operator = str(data.get("op_member_openid") or "")
+            if not group_id:
+                return
+            policy = (
+                self.group_policy(group_id) if self.group_policy
+                else self._default_group_policy(group_id)
+            )
+            logger.info(
+                "官方群事件 %s group=%s operator=%s known=%s",
+                event, group_id, operator, policy is not None,
+            )
+            if event == "GROUP_ADD_ROBOT" and policy is None and self.on_unknown_group:
+                self.on_unknown_group(
+                    group_id, operator, "机器人被拉进群", "",
+                    notify=True,
+                )
+            return
+
         if event not in (
             "C2C_MESSAGE_CREATE",
             "GROUP_AT_MESSAGE_CREATE",
@@ -286,6 +306,12 @@ class OfficialQQAdapter(BaseAdapter):
                     for m in (data.get("mentions") or [])
                 )
             log = logger.info if event != "GROUP_MESSAGE_CREATE" else logger.debug
+            policy = (
+                self.group_policy(data.get("group_openid") or "")
+                if self.group_policy else None
+            )
+            if policy is None:
+                log = logger.info
             log(
                 "官方群事件 %s group=%s user=%s at_bot=%s",
                 event, data.get("group_openid"),
@@ -372,9 +398,15 @@ class OfficialQQAdapter(BaseAdapter):
             else self._default_group_policy(group_id)
         )
         if policy is None:
-            if at_bot and self.on_unknown_group:
+            mention_hint = (
+                at_bot
+                or bool(data.get("mentions"))
+                or "<@" in str(data.get("content") or "")
+            )
+            if self.on_unknown_group:
                 self.on_unknown_group(
-                    group_id, user_id, text, parsed["name"]
+                    group_id, user_id, text, parsed["name"],
+                    notify=mention_hint,
                 )
             return
 

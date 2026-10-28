@@ -48,7 +48,10 @@ async def on_qq_message(message: str, context: dict) -> str:
             if handled is not None:
                 return handled
 
-            from app.agent.groups import handle_group_admin
+            from app.agent.groups import handle_group_admin, is_scan_group_command
+
+            if is_scan_group_command(message):
+                return await scan_unknown_groups()
 
             group_reply = handle_group_admin(message, store, user_id)
             if group_reply is not None:
@@ -169,14 +172,39 @@ def group_policy(group_id: str) -> dict | None:
     return None
 
 
-def on_unknown_group(group_id: str, user_id: str, text: str, sender_name: str) -> None:
+def on_unknown_group(group_id: str, user_id: str, text: str, sender_name: str,
+                     notify: bool = True) -> None:
     store = shared.memory_store
     if store is None:
         return
-    if not store.record_unknown_group(group_id, user_id, sender_name, text):
-        return
-    task = asyncio.create_task(_notify_unknown_group(group_id, user_id, sender_name, text))
-    task.add_done_callback(_log_task_result)
+    store.record_unknown_group(group_id, user_id, sender_name, text)
+    info = store.get_unknown_group(group_id)
+    if notify and info is not None and not info.get("notified"):
+        store.mark_unknown_group_notified(group_id)
+        task = asyncio.create_task(
+            _notify_unknown_group(group_id, user_id, sender_name, text)
+        )
+        task.add_done_callback(_log_task_result)
+
+
+async def scan_unknown_groups() -> str:
+    store = shared.memory_store
+    if store is None:
+        return "记忆库还没准备好。"
+    pending = store.list_unknown_groups("pending")
+    if not pending:
+        return "没有待处理的新群。先把机器人拉进群，在群里发一句，再让我扫。"
+    sent = 0
+    for item in pending:
+        if item.get("notified"):
+            continue
+        store.mark_unknown_group_notified(item["group_id"])
+        await _notify_unknown_group(
+            item["group_id"], item.get("user_id") or "",
+            item.get("sender_name") or "", item.get("sample") or "",
+        )
+        sent += 1
+    return f"扫描完成：待处理新群 {len(pending)} 个，新发通知 {sent} 条。"
 
 
 async def _notify_unknown_group(group_id: str, user_id: str,

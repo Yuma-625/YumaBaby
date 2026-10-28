@@ -9,6 +9,15 @@ from app.memory.store import MemoryStore
 logger = logging.getLogger(__name__)
 
 _OPENID_RE = re.compile(r"^[A-Za-z0-9_\-]{8,80}$")
+_SCAN_WORDS = (
+    "扫新群", "扫描新群", "扫群", "扫描群",
+    "扫一下最近新加的群", "扫一下新群", "扫描最近新加的群",
+)
+
+
+def is_scan_group_command(text: str) -> bool:
+    value = (text or "").strip()
+    return value in _SCAN_WORDS
 
 
 def _parse_mode(args: str) -> tuple[str, bool]:

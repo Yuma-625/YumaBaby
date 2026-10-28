@@ -1388,6 +1388,12 @@ class MemoryStore:
         )
         self._conn.commit()
 
+    def mark_unknown_group_notified(self, group_id: str) -> None:
+        self._conn.execute(
+            "UPDATE unknown_groups SET notified=1 WHERE group_id=?", (group_id,)
+        )
+        self._conn.commit()
+
     def list_unknown_groups(self, status: str = "pending") -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT * FROM unknown_groups WHERE status=? ORDER BY first_seen DESC",

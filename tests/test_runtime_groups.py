@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.agent.groups import handle_group_admin
+from app.agent.groups import handle_group_admin, is_scan_group_command
 from app.config import settings
 from app.memory.store import MemoryStore
 
@@ -54,6 +54,11 @@ class RuntimeGroupAdminTest(unittest.TestCase):
 
     def test_invalid_openid(self):
         self.assertIn("格式不对", handle_group_admin("加群 xxx", self.store, "ADMIN"))
+
+    def test_scan_command_detection(self):
+        self.assertTrue(is_scan_group_command("扫一下最近新加的群"))
+        self.assertTrue(is_scan_group_command("扫新群"))
+        self.assertFalse(is_scan_group_command("群列表"))
 
 
 if __name__ == "__main__":

@@ -21,6 +21,20 @@ class OfficialPolicyTest(unittest.TestCase):
             "mentions": [{"id": "BOT", "username": "小弗", "bot": True}],
         }
 
+    def test_add_robot_notifies_unknown_group(self):
+        seen = []
+        adapter = OfficialQQAdapter(
+            group_policy=lambda gid: None,
+            on_unknown_group=lambda *args, **kwargs: seen.append(args),
+        )
+        asyncio.run(adapter._handle_event(
+            "GROUP_ADD_ROBOT",
+            {"group_openid": "G12345678", "op_member_openid": "U1"},
+        ))
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0][0], "G12345678")
+        self.assertEqual(seen[0][1], "U1")
+
     def test_unknown_group_notifies_admin_once(self):
         seen = []
         replies = []
@@ -32,7 +46,7 @@ class OfficialPolicyTest(unittest.TestCase):
         adapter = OfficialQQAdapter(
             on_message=on_message,
             group_policy=lambda gid: None,
-            on_unknown_group=lambda *args: seen.append(args),
+            on_unknown_group=lambda *args, **kwargs: seen.append(args),
         )
         adapter._bot_openid = "BOT"
         asyncio.run(adapter._handle_group(self._event(), at_bot=True))

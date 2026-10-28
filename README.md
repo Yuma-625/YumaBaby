@@ -290,9 +290,10 @@ QQ_OFFICIAL_BOT_OPENID=      # READY 后自动获取，也可手动填
 
 机器人被拉进新群、首次被 @ 时：
 
-1. 适配器发现未知 `group_openid`
-2. 私聊管理员一条通知：群 openid、首次 @ 的人、消息摘要
-3. 管理员回复其中一种：
+1. 官方 `GROUP_ADD_ROBOT` 事件到达就私聊通知，不必等 @
+2. 如果只收到群消息，适配器发现未知 `group_openid` 也会记录
+3. 私聊管理员一条通知：群 openid、首次 @ 的人、消息摘要
+4. 管理员回复其中一种：
 
 ```text
 加群 <openid> 正常
@@ -303,6 +304,7 @@ QQ_OFFICIAL_BOT_OPENID=      # READY 后自动获取，也可手动填
 
 4. `加群` 写入 SQLite 的 `runtime_groups`，**下一条消息立即生效，不用改 .env、不用重启**
 5. `群列表` 查看数据库与 `.env` 合并后的配置；`删群 <openid>` 移除运行时配置
+6. 漏了通知时发 `扫一下最近新加的群`，会重发待处理新群通知；`待审群` 查看列表
 
 优先级：`runtime_groups` 数据库 > `.env` 的 `QQ_TARGET_GROUPS` / `QQ_READONLY_GROUPS` / `QQ_PARTICIPATION_GROUPS`。
 
