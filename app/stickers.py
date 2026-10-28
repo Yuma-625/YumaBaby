@@ -669,7 +669,9 @@ def maybe_reply_sticker(store: MemoryStore, reply: str, *,
         age = _age_seconds(store.last_event_at("sticker_send", chat_id))
         if age is not None and age < settings.STICKER_SEND_COOLDOWN_SECONDS:
             return ""
-    if store.count_events_today("sticker_send", chat_id) >= settings.STICKER_SEND_DAILY_LIMIT:
+    if (settings.STICKER_SEND_DAILY_LIMIT > 0
+            and store.count_events_today("sticker_send", chat_id)
+            >= settings.STICKER_SEND_DAILY_LIMIT):
         return ""
 
     tones = classify_tone(reply, store.list_tone_rules())
