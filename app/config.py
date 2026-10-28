@@ -185,6 +185,9 @@ class Settings:
 
     # Log
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
+    LOG_FILE: str = os.getenv("LOG_FILE", str(BASE_DIR / "data" / "logs" / "yumababy.log"))
+    LOG_MAX_BYTES: int = _env_int("LOG_MAX_BYTES", 5_000_000)
+    LOG_BACKUPS: int = _env_int("LOG_BACKUPS", 5)
 
     # LLM
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "").strip()
