@@ -89,10 +89,14 @@ class OfficialPolicyTest(unittest.TestCase):
 
 
 class OfficialParseTest(unittest.TestCase):
-    def test_mentions_are_converted(self):
+    def test_mentions_are_removed(self):
         self.assertEqual(
             format_official_mentions("你好 [[at:ABC123]] 在吗"),
-            "你好 <@ABC123> 在吗",
+            "你好 在吗",
+        )
+        self.assertEqual(
+            format_official_mentions("你好 <@ABC123> 在吗"),
+            "你好 在吗",
         )
 
     def test_cq_image_is_stripped(self):

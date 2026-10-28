@@ -320,6 +320,7 @@ class AgentServiceTest(unittest.TestCase):
     def test_normalize_reply(self):
         self.assertEqual(normalize_reply("第一句。\n\n第二句。"), "第一句。 第二句。")
         self.assertEqual(normalize_reply("  a \n\t b  "), "a b")
+        self.assertEqual(normalize_reply("<@ABC123> 你好"), "你好")
         self.assertEqual(normalize_reply(None), "")
 
     def test_multiline_reply_is_flattened(self):

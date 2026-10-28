@@ -339,7 +339,8 @@ group_id + member_openid + username + last_seen + message_count
 - 只查**当前群**
 - 只认识在群里发过言的人
 - 昵称唯一 → 找到 `member_openid`，默认只称呼名字，不 @
-- 想真的 @ 对方：`GROUP_NAME_MENTION=true`
+- 官方群发送暂不支持文本 @；适配器会剥离 `<@openid>`，不会把原始 ID 发出去
+- `GROUP_NAME_MENTION=true` 预留给以后的 mention 能力，当前 official 下不会真的 @
 - 多个同名 → 先问清楚，不随便 @
 - 找不到 → 直说，不编造
 - 官方机器人拿不到真实 QQ 号，@ 用的是 `member_openid`

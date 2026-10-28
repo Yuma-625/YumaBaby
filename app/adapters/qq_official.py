@@ -27,6 +27,7 @@ _MENTION_RE = re.compile(r"\[\[at:([^\]]+)\]\]")
 _CQ_IMAGE_RE = re.compile(r"\[CQ:image,[^\]]*\]")
 _CQ_IMAGE_B64_RE = re.compile(r"\[CQ:image,file=base64://([^\]]+)\]")
 _AT_TAG_RE = re.compile(r"<@!?([^>]+)>")
+_OUTBOUND_AT_TAG_RE = re.compile(r"<@!?[^>]+>")
 
 
 def _image_file_type(data: bytes) -> tuple[int, str]:
@@ -44,8 +45,10 @@ def _image_file_type(data: bytes) -> tuple[int, str]:
 
 
 def format_official_mentions(text: str) -> str:
-    """模型写 [[at:openid]]，官方协议写成 <@openid>。"""
-    return _MENTION_RE.sub(r"<@\1>", text or "")
+    """官方群发送不支持文本 <@openid>，发送前去掉标记，避免露出原始 ID。"""
+    cleaned = _MENTION_RE.sub("", text or "")
+    cleaned = _OUTBOUND_AT_TAG_RE.sub("", cleaned)
+    return " ".join(cleaned.split())
 
 
 def strip_cq_images(text: str) -> tuple[str, int]:

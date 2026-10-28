@@ -17,9 +17,14 @@ _HELP_REPLIES = {"帮助", "help", "功能"}
 _WHITESPACE = re.compile(r"\s+")
 
 
+_WHITESPACE = re.compile(r"\s+")
+_RAW_AT_TAG = re.compile(r"<@!?[^>]+>")
+
+
 def normalize_reply(text: str) -> str:
-    """QQ 里不需要排版：把空行、换行、连续空格压成单个空格。"""
-    return _WHITESPACE.sub(" ", text or "").strip()
+    """QQ 里不需要排版：压掉换行/空格，并去掉模型直接写的 <@openid>。"""
+    cleaned = _RAW_AT_TAG.sub("", text or "")
+    return _WHITESPACE.sub(" ", cleaned).strip()
 
 
 def _log_task_error(task: asyncio.Task):
