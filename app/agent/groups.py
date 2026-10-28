@@ -48,6 +48,18 @@ def handle_group_admin(text: str, store: MemoryStore, user_id: str) -> str | Non
             lines.append("  还没有配置任何群。")
         return "\n".join(lines)
 
+    if value in ("待审群", "新群", "未配置群"):
+        pending = store.list_unknown_groups("pending")
+        if not pending:
+            return "没有待处理的新群。"
+        lines = ["待审新群："]
+        for item in pending:
+            lines.append(
+                f"  {item['group_id']}  首次 @ {item.get('sender_name') or item.get('user_id')}"
+                f"：{(item.get('sample') or '')[:40]}"
+            )
+        return "\n".join(lines)
+
     match = re.match(r"^(?:加群|添加群)\s+(\S+)(?:\s+(.*))?$", value)
     if match:
         group_id = match.group(1)
