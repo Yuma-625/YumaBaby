@@ -537,7 +537,10 @@ class OfficialQQAdapter(BaseAdapter):
         user_id = parsed["user_id"]
         if not user_id:
             return
-        logger.info("官方私聊 user=%s name=%s", user_id, parsed["name"])
+        logger.info(
+            "官方私聊 user=%s name=%s reply_ref=%s",
+            user_id, parsed["name"], parsed["reply_ref"],
+        )
         is_admin = bool(settings.QQ_PERSONA_ADMIN) and user_id == settings.QQ_PERSONA_ADMIN
         if user_id not in settings.QQ_PRIVATE_WHITELIST and not is_admin:
             logger.debug(f"忽略非白名单私聊 openid: {user_id}")
