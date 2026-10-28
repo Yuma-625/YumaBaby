@@ -153,6 +153,22 @@ class StickerCommandTest(unittest.TestCase):
         self.assertEqual(self.store.get_sticker_by_name("大狗无语")["use_count"], 1)
         self.assertEqual(self.store.get_sticker_by_name("红温")["use_count"], 0)
 
+    def test_saves_private_recent_image(self):
+        self.store.save_message(
+            "user:U1", "user", "[图片]",
+            attachments=[{"type": "image", "url": data_uri()}],
+        )
+        reply = asyncio.run(save_sticker(
+            self.store,
+            attachments=[],
+            group_id=None,
+            user_id="1293585554",
+            chat_id="user:U1",
+            text="存这个表情包 命名私聊图 标签无语",
+        ))
+        self.assertIn("存好了", reply)
+        self.assertEqual(self.store.get_sticker_by_name("私聊图")["tags"], "无语")
+
     def test_collect_and_approve_candidate(self):
         added = asyncio.run(collect_candidates(
             self.store,

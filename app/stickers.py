@@ -16,6 +16,7 @@ import httpx
 from app.config import settings
 from app.memory.store import MemoryStore
 from app.tools.builtin import check_url
+from app.utils.media import detect_image_mime
 
 logger = logging.getLogger(__name__)
 
@@ -65,14 +66,20 @@ def _pick_attachment(attachments: list[dict] | None) -> dict | None:
     return None
 
 
-def _pick_from_context(store: MemoryStore, group_id: str | None) -> dict | None:
-    if not group_id:
-        return None
-    entries = store.recent_group_context(
-        group_id, limit=10, minutes=settings.STICKER_LOOKBACK_MINUTES
-    )
-    for entry in reversed(entries):
-        found = _pick_attachment(entry.get("attachments"))
+def _pick_from_context(store: MemoryStore, group_id: str | None,
+                       chat_id: str | None = None) -> dict | None:
+    if group_id:
+        entries = store.recent_group_context(
+            group_id, limit=10, minutes=settings.STICKER_LOOKBACK_MINUTES
+        )
+        for entry in reversed(entries):
+            found = _pick_attachment(entry.get("attachments"))
+            if found:
+                return found
+    if chat_id:
+        found = _pick_attachment(store.recent_message_attachments(
+            chat_id, limit=10, minutes=settings.STICKER_LOOKBACK_MINUTES
+        ))
         if found:
             return found
     return None
@@ -82,11 +89,14 @@ async def _download(url: str) -> tuple[bytes, str] | None:
     if url.startswith("data:image/"):
         header, _, payload = url.partition(",")
         ctype = header[5:].split(";")[0].lower()
-        if ctype not in _ALLOWED_CTYPES:
-            return None
         try:
             data = base64.b64decode(payload)
         except Exception:
+            return None
+        detected = detect_image_mime(data)
+        if detected:
+            ctype = detected
+        if ctype not in _ALLOWED_CTYPES:
             return None
         return (data, ctype) if len(data) <= settings.STICKER_MAX_BYTES else None
 
@@ -97,14 +107,15 @@ async def _download(url: str) -> tuple[bytes, str] | None:
 
     try:
         async with httpx.AsyncClient(timeout=settings.VISION_TIMEOUT, follow_redirects=True) as client:
-            async with client.stream("GET", url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+            async with client.stream(
+                "GET", url,
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://q.qq.com/"},
+            ) as resp:
                 if resp.status_code != 200:
+                    logger.warning(f"表情下载失败 HTTP {resp.status_code}")
                     return None
                 ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
-                if ctype not in _ALLOWED_CTYPES:
-                    logger.warning(f"表情类型不支持: {ctype}")
-                    return None
-                chunks = []
+                chunks: list[bytes] = []
                 size = 0
                 async for chunk in resp.aiter_bytes():
                     size += len(chunk)
@@ -112,10 +123,18 @@ async def _download(url: str) -> tuple[bytes, str] | None:
                         logger.warning("表情超过大小上限")
                         return None
                     chunks.append(chunk)
-                return b"".join(chunks), ctype
+                data = b"".join(chunks)
     except Exception as e:
         logger.warning(f"表情下载失败: {type(e).__name__}: {e}")
         return None
+
+    detected = detect_image_mime(data)
+    if detected:
+        ctype = detected
+    if ctype not in _ALLOWED_CTYPES:
+        logger.warning(f"表情类型不支持: {ctype or '未知'}")
+        return None
+    return data, ctype
 
 
 async def save_sticker(
@@ -125,8 +144,11 @@ async def save_sticker(
     group_id: str | None,
     user_id: str,
     text: str = "",
+    chat_id: str | None = None,
 ) -> str:
-    attachment = _pick_attachment(attachments) or _pick_from_context(store, group_id)
+    attachment = _pick_attachment(attachments) or _pick_from_context(
+        store, group_id, chat_id
+    )
     if attachment is None:
         return "没找到要存的表情包。先把表情发出来，或者引用它再说「存这个表情包」。"
 
@@ -205,6 +227,7 @@ async def handle_sticker_command(
     attachments: list[dict] | None,
     group_id: str | None,
     user_id: str,
+    chat_id: str | None = None,
 ) -> str | None:
     if not is_sticker_command(text):
         return None
@@ -212,7 +235,7 @@ async def handle_sticker_command(
         return None
     return await save_sticker(
         store, attachments=attachments, group_id=group_id, user_id=user_id,
-        text=text,
+        text=text, chat_id=chat_id,
     )
 
 
@@ -588,12 +611,19 @@ def _tone_preferences() -> dict[str, str]:
     return mapping
 
 
-def classify_tone(text: str) -> set[str]:
-    """轻量语气分类：不额外调模型，先覆盖常见口癖。"""
+def classify_tone(text: str, rules: list[dict] | None = None) -> set[str]:
+    """轻量语气分类：规则可来自数据库，不额外调模型。"""
     value = text or ""
     tones: set[str] = set()
-    for tone, words in _TONE_RULES:
-        if any(word in value for word in words):
+    source = rules if rules else [
+        {"tone": tone, "keywords": ",".join(words)}
+        for tone, words in _TONE_RULES
+    ]
+    for rule in source:
+        tone = str(rule.get("tone") or "").strip()
+        raw = str(rule.get("keywords") or "")
+        words = [word.strip() for word in re.split(r"[,，、/\s]+", raw) if word.strip()]
+        if tone and words and any(word in value for word in words):
             tones.add(tone)
     return tones
 
@@ -642,7 +672,7 @@ def maybe_reply_sticker(store: MemoryStore, reply: str, *,
     if store.count_events_today("sticker_send", chat_id) >= settings.STICKER_SEND_DAILY_LIMIT:
         return ""
 
-    tones = classify_tone(reply)
+    tones = classify_tone(reply, store.list_tone_rules())
     if not tones:
         return ""
     candidates = [

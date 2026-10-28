@@ -12,6 +12,7 @@ import httpx
 
 from app.config import settings
 from app.tools.builtin import check_url
+from app.utils.media import detect_image_mime
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +26,27 @@ async def attachment_to_part(attachment: dict) -> dict | None:
         return None
 
     if url.startswith("data:image/"):
-        ctype = url[5:].split(";")[0].lower()
+        header, _, payload = url.partition(",")
+        ctype = header[5:].split(";")[0].lower()
+        try:
+            data = base64.b64decode(payload)
+        except Exception:
+            # 兼容测试/异常 data URI：类型合法就原样透传
+            if ctype in _ALLOWED_CTYPES:
+                return {"type": "image_url", "image_url": {"url": url}}
+            return None
+        detected = detect_image_mime(data)
+        if detected:
+            ctype = detected
         if ctype not in _ALLOWED_CTYPES:
             logger.debug(f"跳过不支持的图片类型: {ctype}")
             return None
-        return {"type": "image_url", "image_url": {"url": url}}
+        return {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{ctype};base64,{base64.b64encode(data).decode()}"
+            },
+        }
 
     reason = check_url(url)
     if reason:
@@ -38,14 +55,14 @@ async def attachment_to_part(attachment: dict) -> dict | None:
 
     try:
         async with httpx.AsyncClient(timeout=settings.VISION_TIMEOUT, follow_redirects=True) as client:
-            async with client.stream("GET", url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+            async with client.stream(
+                "GET", url,
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://q.qq.com/"},
+            ) as resp:
                 if resp.status_code != 200:
                     logger.warning(f"图片下载失败 HTTP {resp.status_code}")
                     return None
                 ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
-                if ctype not in _ALLOWED_CTYPES:
-                    logger.debug(f"跳过不支持的图片类型: {ctype}")
-                    return None
 
                 chunks: list[bytes] = []
                 size = 0
@@ -60,6 +77,12 @@ async def attachment_to_part(attachment: dict) -> dict | None:
         logger.warning(f"图片下载异常: {type(e).__name__}: {e}")
         return None
 
+    detected = detect_image_mime(data)
+    if detected:
+        ctype = detected
+    if ctype not in _ALLOWED_CTYPES:
+        logger.warning(f"跳过不支持的图片类型: {ctype or '未知'}")
+        return None
     encoded = base64.b64encode(data).decode()
     return {
         "type": "image_url",

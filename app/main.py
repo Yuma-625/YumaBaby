@@ -54,6 +54,12 @@ async def on_qq_message(message: str, context: dict) -> str:
             if group_reply is not None:
                 return group_reply
 
+            from app.agent.tones import handle_tone_admin
+
+            tone_reply = handle_tone_admin(message, store, user_id)
+            if tone_reply is not None:
+                return tone_reply
+
         from app.stickers import handle_sticker_command
 
         sticker_reply = await handle_sticker_command(
@@ -62,6 +68,7 @@ async def on_qq_message(message: str, context: dict) -> str:
             attachments=context.get("attachments") or [],
             group_id=group_id,
             user_id=user_id,
+            chat_id=f"group:{group_id}" if group_id else f"user:{user_id}",
         )
         if sticker_reply is not None:
             return sticker_reply

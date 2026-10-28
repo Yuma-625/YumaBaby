@@ -146,6 +146,14 @@ CREATE TABLE IF NOT EXISTS unknown_groups (
     notified INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS tone_rules (
+    tone TEXT PRIMARY KEY,
+    keywords TEXT DEFAULT '',
+    enabled INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS group_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id TEXT NOT NULL,
@@ -194,8 +202,7 @@ CREATE TABLE IF NOT EXISTS chat_summaries (
 );
 """
 
-_MIGRATIONS = [
-    ("messages", "platform_message_id", "TEXT"),
+_MIGRATIONS = [    ("messages", "platform_message_id", "TEXT"),
     ("messages", "attachments", "TEXT DEFAULT ''"),
     ("memories", "weight", "REAL DEFAULT 1.0"),
     ("memories", "memory_hash", "TEXT"),
@@ -244,6 +251,16 @@ def _merge_keywords(old: str, new: str) -> str:
     return ",".join(items[:20])
 
 
+DEFAULT_TONE_RULES = (
+    ("无语", "无语,服了,离谱,真会,懒得,算了,汗,拿你没办法,沉默,……"),
+    ("开心", "哈哈,笑死,开心,好耶,嘿嘿,乐"),
+    ("傲娇", "哼,才不,略,笨蛋,不要"),
+    ("得意", "牛,厉害,不错,可以啊,当然,包的"),
+    ("疑惑", "？,?,什么,真的假的,啊"),
+    ("丧", "唉,难过,惨,寄,累"),
+)
+
+
 class MemoryStore:
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path or settings.MEMORY_DB)
@@ -253,7 +270,20 @@ class MemoryStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA)
         self._migrate()
+        self._seed_tone_rules()
         self._conn.commit()
+
+    def _seed_tone_rules(self):
+        row = self._conn.execute("SELECT COUNT(*) AS n FROM tone_rules").fetchone()
+        if int(row["n"]) > 0:
+            return
+        now = _now()
+        for tone, keywords in DEFAULT_TONE_RULES:
+            self._conn.execute(
+                "INSERT INTO tone_rules(tone, keywords, enabled, created_at, updated_at) "
+                "VALUES (?, ?, 1, ?, ?)",
+                (tone, keywords, now, now),
+            )
 
     def _migrate(self):
         for table, column, ctype in _MIGRATIONS:
@@ -1084,6 +1114,25 @@ class MemoryStore:
             result.append(item)
         return result
 
+    def recent_message_attachments(self, chat_id: str, limit: int = 10,
+                                   minutes: int = 10) -> list[dict[str, Any]]:
+        """取某会话最近几条带附件的用户消息，供私聊“存刚发的图”用。"""
+        try:
+            tz = ZoneInfo(settings.TIMEZONE)
+        except Exception:
+            tz = ZoneInfo("UTC")
+        cutoff = (datetime.now(tz) - timedelta(minutes=max(1, minutes))).isoformat(timespec="seconds")
+        rows = self._conn.execute(
+            "SELECT attachments FROM messages WHERE chat_id=? AND role='user' "
+            "AND attachments IS NOT NULL AND attachments != '' AND created_at>=? "
+            "ORDER BY id DESC LIMIT ?",
+            (chat_id, cutoff, max(1, limit)),
+        ).fetchall()
+        result = []
+        for row in rows:
+            result.extend(_load_attachments(row["attachments"]))
+        return result
+
     def group_context_from_user(self, group_id: str, user_id: str,
                                 limit: int = 3) -> list[dict[str, Any]]:
         rows = self._conn.execute(
@@ -1345,6 +1394,31 @@ class MemoryStore:
             (status,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------ 语气规则
+
+    def list_tone_rules(self, enabled_only: bool = True) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM tone_rules"
+        if enabled_only:
+            sql += " WHERE enabled=1"
+        sql += " ORDER BY tone"
+        rows = self._conn.execute(sql).fetchall()
+        return [dict(r) for r in rows]
+
+    def upsert_tone_rule(self, tone: str, keywords: str, enabled: bool = True) -> None:
+        now = _now()
+        self._conn.execute(
+            "INSERT INTO tone_rules(tone, keywords, enabled, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(tone) DO UPDATE SET "
+            "keywords=excluded.keywords, enabled=excluded.enabled, updated_at=excluded.updated_at",
+            (tone.strip(), keywords.strip(), 1 if enabled else 0, now, now),
+        )
+        self._conn.commit()
+
+    def delete_tone_rule(self, tone: str) -> int:
+        cur = self._conn.execute("DELETE FROM tone_rules WHERE tone=?", (tone,))
+        self._conn.commit()
+        return cur.rowcount
 
     # ------------------------------------------------------------------ 日报
 
