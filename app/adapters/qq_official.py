@@ -454,6 +454,10 @@ class OfficialQQAdapter(BaseAdapter):
                 return
             auto = True
             self._last_auto_reply[group_id] = asyncio.get_running_loop().time()
+        elif not at_bot and any(
+            kw and kw in text for kw in settings.QQ_AUTO_REPLY_KEYWORDS
+        ):
+            logger.info("官方群关键词触发 [%s]: %s", group_id, text[:80])
 
         if not text and at_bot:
             text = "（只是 @ 了我一下，没有说别的）"
