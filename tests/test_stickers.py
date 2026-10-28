@@ -66,6 +66,7 @@ class StickerCommandTest(unittest.TestCase):
     def test_parse_tags(self):
         self.assertEqual(parse_sticker_tags("命名无语 标签无语,狗"), "无语,狗")
         self.assertEqual(parse_sticker_tags("标签：开心、摸鱼"), "开心,摸鱼")
+        self.assertEqual(parse_sticker_tags("命名无语 标签无语。"), "无语")
         self.assertEqual(parse_sticker_tags("命名无语"), "")
 
     def test_classify_tone(self):

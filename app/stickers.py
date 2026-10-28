@@ -45,7 +45,7 @@ def parse_sticker_tags(text: str) -> str:
     raw = re.split(r"命名", raw)[0]
     tags = []
     for chunk in re.split(r"[,，、/\s]+", raw):
-        chunk = chunk.strip("「」『』\"'“”")
+        chunk = chunk.strip("「」『』\"'“”").strip(_PUNCT)
         if chunk and chunk not in tags:
             tags.append(chunk)
     return ",".join(tags[:10])
