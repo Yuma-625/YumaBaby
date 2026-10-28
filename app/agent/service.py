@@ -354,7 +354,7 @@ class AgentService:
             logger.exception("调度记忆提炼失败")
         self._log_events(chat_id, result)
         self._maybe_learn(text, reply)
-        if scope_type == "group" and not auto_participate:
+        if scope_type == "group":
             try:
                 from app.stickers import maybe_reply_sticker
 
