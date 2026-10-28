@@ -313,9 +313,14 @@ class OfficialQQAdapter(BaseAdapter):
             if policy is None:
                 log = logger.info
             log(
-                "官方群事件 %s group=%s user=%s at_bot=%s",
+                "官方群事件 %s group=%s user=%s at_bot=%s content=%r mentions=%s",
                 event, data.get("group_openid"),
                 (data.get("author") or {}).get("member_openid"), at_bot,
+                data.get("content"),
+                [
+                    (m.get("id"), m.get("member_openid"), m.get("username"), m.get("bot"))
+                    for m in (data.get("mentions") or [])
+                ],
             )
             await self._handle_group(data, at_bot=at_bot)
 
@@ -331,6 +336,11 @@ class OfficialQQAdapter(BaseAdapter):
             str(m.get("id") or m.get("member_openid") or ""): str(m.get("username") or "")
             for m in mentions
         }
+        bot_mention_ids = {
+            str(m.get("id") or m.get("member_openid") or "")
+            for m in mentions if m.get("bot")
+        }
+        bot_mention_ids.add(self._bot_openid)
 
         def repl(match):
             key = match.group(1)
@@ -339,6 +349,14 @@ class OfficialQQAdapter(BaseAdapter):
             return f"@{mention_names.get(key, key)} "
 
         text = _AT_TAG_RE.sub(repl, str(data.get("content") or ""))
+        # 官方有时把 content 里的 @ 占位符去掉了，但 mentions 仍带人；
+        # 补回名字，避免模型只看到“和 打个招呼”。
+        for target_id, target in mention_names.items():
+            if target_id in bot_mention_ids:
+                continue
+            if target and f"@{target}" not in text:
+                text = f"@{target} " + text
+                break
         attachments = []
         for item in data.get("attachments") or []:
             ctype = str(item.get("content_type") or "")

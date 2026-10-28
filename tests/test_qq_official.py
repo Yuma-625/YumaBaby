@@ -101,6 +101,22 @@ class OfficialParseTest(unittest.TestCase):
         self.assertNotIn("CQ:", text)
         self.assertIn("看图", text)
 
+    def test_parse_mentions_without_content_placeholder(self):
+        adapter = OfficialQQAdapter()
+        adapter._bot_openid = "BOT"
+        data = {
+            "id": "m2",
+            "content": "和 打个招呼",
+            "author": {"member_openid": "U1", "username": "奶鱼"},
+            "mentions": [
+                {"id": "BOT", "username": "小弗", "bot": True},
+                {"id": "U2", "username": "奶坤"},
+            ],
+        }
+        parsed = adapter._parse_event(data)
+        self.assertIn("@奶坤", parsed["text"])
+        self.assertEqual(parsed["at_targets"], [{"qq": "U2", "name": "奶坤"}])
+
     def test_parse_group_event(self):
         adapter = OfficialQQAdapter()
         adapter._bot_openid = "BOT"
