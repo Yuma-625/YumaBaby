@@ -98,6 +98,7 @@ class OfficialQQAdapter(BaseAdapter):
         self._token = ""
         self._token_exp = 0.0
         self._bot_openid = settings.QQ_OFFICIAL_BOT_OPENID
+        self._bot_name = ""
         self._ws: Any = None
         self._connected = False
         self._running = False
@@ -164,6 +165,8 @@ class OfficialQQAdapter(BaseAdapter):
                             user = data.get("user") or {}
                             if user.get("id") and not self._bot_openid:
                                 self._bot_openid = str(user["id"])
+                            if user.get("username"):
+                                self._bot_name = str(user["username"])
                             logger.info(f"官方机器人已就绪: {user.get('username')} ({user.get('id')})")
                         elif event == "RESUMED":
                             logger.info("官方机器人已恢复会话")
@@ -355,9 +358,17 @@ class OfficialQQAdapter(BaseAdapter):
             key = match.group(1)
             if key == "all":
                 return "@全体成员 "
+            if key in bot_mention_ids:
+                return " "
             return f"@{mention_names.get(key, key)} "
 
         text = _AT_TAG_RE.sub(repl, str(data.get("content") or ""))
+        # content 里可能保留字面量 @小弗，命令解析前去掉
+        if self._bot_name:
+            prefix = f"@{self._bot_name}"
+            text = text.lstrip()
+            if text.startswith(prefix):
+                text = text[len(prefix):].lstrip()
         # 官方有时把 content 里的 @ 占位符去掉了，但 mentions 仍带人；
         # 补回名字，避免模型只看到“和 打个招呼”。
         for target_id, target in mention_names.items():
@@ -462,7 +473,12 @@ class OfficialQQAdapter(BaseAdapter):
         active = self._pending_key(group_id, user_id) in self._pending
         auto = False
         followup = False
-        if not active and not self._is_group_triggered(at_bot, text):
+        admin_command = (
+            bool(settings.QQ_PERSONA_ADMIN)
+            and user_id == settings.QQ_PERSONA_ADMIN
+            and self._looks_admin_command(text)
+        )
+        if not active and not self._is_group_triggered(at_bot, text) and not admin_command:
             state = (
                 self.conversation_state(group_id, user_id)
                 if settings.FOLLOWUP_ENABLED and self.conversation_state else None
@@ -546,6 +562,18 @@ class OfficialQQAdapter(BaseAdapter):
         return False
 
     # ------------------------------------------------------------------ 策略
+
+    @staticmethod
+    def _looks_admin_command(text: str) -> bool:
+        value = (text or "").strip().lower()
+        if value.startswith(("llm", "token", "今天", "日报")):
+            return True
+        return value.startswith((
+            "发给我", "给我发", "主动发", "加群", "删群", "群列表",
+            "待审群", "扫新群", "扫一下", "语气", "表情候选",
+            "表情列表", "表情标签", "收 ", "拒 ", "存这个", "保存这个",
+            "收藏这个",
+        ))
 
     def _is_group_triggered(self, mentioned: bool, text: str) -> bool:
         mode = settings.GROUP_TRIGGER_MODE

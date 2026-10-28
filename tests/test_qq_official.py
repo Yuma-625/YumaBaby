@@ -3,6 +3,7 @@ import base64
 import json
 import time
 import unittest
+from unittest.mock import patch
 
 import httpx
 
@@ -11,6 +12,7 @@ from app.adapters.qq_official import (
     format_official_mentions,
     strip_cq_images,
 )
+from app.config import settings
 
 
 class OfficialPolicyTest(unittest.TestCase):
@@ -20,6 +22,27 @@ class OfficialPolicyTest(unittest.TestCase):
             "author": {"member_openid": "U1", "username": "奶鱼"},
             "mentions": [{"id": "BOT", "username": "小弗", "bot": True}],
         }
+
+    def test_admin_command_bypasses_trigger(self):
+        replies = []
+
+        async def on_message(text, context):
+            replies.append(text)
+            return ""
+
+        adapter = OfficialQQAdapter(
+            on_message=on_message,
+            group_policy=lambda gid: {"mode": "normal", "participation": False},
+        )
+        event = {
+            "id": "a1", "content": "llm check", "group_openid": "G12345678",
+            "author": {"member_openid": "ADMIN", "username": "Yuma"},
+            "mentions": [],
+        }
+        with patch.object(settings, "QQ_PERSONA_ADMIN", "ADMIN"):
+            asyncio.run(adapter._handle_group(event, at_bot=False))
+        asyncio.run(adapter._flush_after("group:G12345678:ADMIN", 0))
+        self.assertEqual(replies, ["llm check"])
 
     def test_followup_replies_without_at(self):
         replies = []
@@ -172,6 +195,15 @@ class OfficialParseTest(unittest.TestCase):
         self.assertNotIn("CQ:", text)
         self.assertIn("看图", text)
 
+    def test_parse_strips_literal_bot_name(self):
+        adapter = OfficialQQAdapter()
+        adapter._bot_name = "小弗"
+        parsed = adapter._parse_event({
+            "id": "m3", "content": "@小弗 llm check",
+            "author": {"member_openid": "U1", "username": "Yuma"},
+        })
+        self.assertEqual(parsed["text"], "llm check")
+
     def test_parse_mentions_without_content_placeholder(self):
         adapter = OfficialQQAdapter()
         adapter._bot_openid = "BOT"
@@ -206,7 +238,7 @@ class OfficialParseTest(unittest.TestCase):
         parsed = adapter._parse_event(data)
         self.assertEqual(parsed["user_id"], "U1")
         self.assertEqual(parsed["name"], "奶鱼")
-        self.assertIn("@小弗", parsed["text"])
+        self.assertNotIn("@小弗", parsed["text"])
         self.assertIn("@奶坤", parsed["text"])
         self.assertIn("[图片]", parsed["text"])
         self.assertEqual(parsed["attachments"][0]["type"], "image")
