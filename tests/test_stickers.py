@@ -126,6 +126,32 @@ class StickerCommandTest(unittest.TestCase):
         listing = handle_sticker_admin("表情列表", self.store, "1293585554")
         self.assertIn("无语,狗", listing)
 
+    def test_speechless_tone_prefers_big_dog(self):
+        asyncio.run(save_sticker(
+            self.store,
+            attachments=[{"type": "image", "url": data_uri((255, 0, 0))}],
+            group_id="100", user_id="1293585554",
+            text="存这个表情包 命名大狗无语 标签无语",
+        ))
+        asyncio.run(save_sticker(
+            self.store,
+            attachments=[{"type": "image", "url": data_uri((0, 0, 255))}],
+            group_id="100", user_id="1293585554",
+            text="存这个表情包 命名红温 标签无语",
+        ))
+        with (
+            patch.object(settings, "STICKER_SEND_MODE", "reply"),
+            patch.object(settings, "STICKER_SEND_CHANCE", 1.0),
+            patch.object(settings, "STICKER_SEND_COOLDOWN_SECONDS", 0),
+            patch.object(settings, "STICKER_SEND_DAILY_LIMIT", 100),
+            patch.object(settings, "STICKER_SEND_MIN_CHARS", 1),
+            patch.object(settings, "STICKER_TONE_MAP", "无语:大狗无语"),
+        ):
+            cq = maybe_reply_sticker(self.store, "……我真的无语了", group_id="100")
+        self.assertTrue(cq.startswith("[CQ:image"))
+        self.assertEqual(self.store.get_sticker_by_name("大狗无语")["use_count"], 1)
+        self.assertEqual(self.store.get_sticker_by_name("红温")["use_count"], 0)
+
     def test_collect_and_approve_candidate(self):
         added = asyncio.run(collect_candidates(
             self.store,

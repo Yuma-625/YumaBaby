@@ -567,13 +567,25 @@ async def handle_sticker_send(
 # ---------------------------------------------------------------- 回复语气选表情
 
 _TONE_RULES = (
-    ("无语", ("无语", "服了", "离谱", "真会", "懒得", "算了", "汗")),
+    ("无语", ("无语", "服了", "离谱", "真会", "懒得", "算了", "汗", "拿你没办法", "沉默", "……")),
     ("开心", ("哈哈", "笑死", "开心", "好耶", "嘿嘿", "乐")),
     ("傲娇", ("哼", "才不", "略", "笨蛋", "不要")),
     ("得意", ("牛", "厉害", "不错", "可以啊", "当然", "包的")),
     ("疑惑", ("？", "?", "什么", "真的假的", "啊")),
     ("丧", ("唉", "难过", "惨", "寄", "累")),
 )
+
+
+def _tone_preferences() -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for chunk in (settings.STICKER_TONE_MAP or "").replace("，", ",").split(","):
+        if ":" not in chunk:
+            continue
+        tone, name = chunk.split(":", 1)
+        tone, name = tone.strip(), name.strip()
+        if tone and name:
+            mapping[tone] = name
+    return mapping
 
 
 def classify_tone(text: str) -> set[str]:
@@ -640,17 +652,32 @@ def maybe_reply_sticker(store: MemoryStore, reply: str, *,
     if not candidates:
         return ""
 
-    weights = []
-    for sticker in candidates:
-        age = _age_seconds(sticker.get("last_used_at"))
-        recency = 1.0
-        if age is not None and age < 3600:
-            recency = 0.2
-        elif age is not None and age < 86400:
-            recency = 0.6
-        weights.append(recency / (1.0 + int(sticker.get("use_count") or 0)))
+    # 指定语气优先用指定表情，例如“无语”固定发大狗无语
+    preferred = None
+    preferences = _tone_preferences()
+    for tone in tones:
+        name = preferences.get(tone)
+        if not name:
+            continue
+        preferred = next(
+            (s for s in candidates if (s.get("name") or "") == name), None
+        )
+        if preferred is not None:
+            break
 
-    sticker = random.choices(candidates, weights=weights, k=1)[0]
+    if preferred is not None:
+        sticker = preferred
+    else:
+        weights = []
+        for sticker in candidates:
+            age = _age_seconds(sticker.get("last_used_at"))
+            recency = 1.0
+            if age is not None and age < 3600:
+                recency = 0.2
+            elif age is not None and age < 86400:
+                recency = 0.6
+            weights.append(recency / (1.0 + int(sticker.get("use_count") or 0)))
+        sticker = random.choices(candidates, weights=weights, k=1)[0]
     cq = _build_image_cq(sticker)
     if not cq:
         return ""
