@@ -338,7 +338,8 @@ group_id + member_openid + username + last_seen + message_count
 
 - 只查**当前群**
 - 只认识在群里发过言的人
-- 昵称唯一 → 找到 `member_openid`，回复里自动 @
+- 昵称唯一 → 找到 `member_openid`，默认只称呼名字，不 @
+- 想真的 @ 对方：`GROUP_NAME_MENTION=true`
 - 多个同名 → 先问清楚，不随便 @
 - 找不到 → 直说，不编造
 - 官方机器人拿不到真实 QQ 号，@ 用的是 `member_openid`

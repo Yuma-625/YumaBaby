@@ -201,16 +201,24 @@ class AgentService:
             name, members = resolve_name(self.store, scope_id, text)
             if name and len(members) == 1:
                 member = members[0]
-                at_targets.append({
-                    "qq": member["member_openid"],
-                    "name": member.get("username") or name,
-                })
-                system_prompt += (
-                    f"\n\n用户想让你和「{member.get('username') or name}」打招呼，"
-                    f"但没有真正 @ 到对方。已经从群成员目录找到他的 openid："
-                    f"{member['member_openid']}。"
-                    f"回复里用 [[at:{member['member_openid']}]] 来 @ 他。"
-                )
+                display = member.get("username") or name
+                if settings.GROUP_NAME_MENTION:
+                    at_targets.append({
+                        "qq": member["member_openid"],
+                        "name": display,
+                    })
+                    system_prompt += (
+                        f"\n\n用户想让你和「{display}」打招呼，"
+                        f"但没有真正 @ 到对方。已经从群成员目录找到他的 openid："
+                        f"{member['member_openid']}。"
+                        f"回复里用 [[at:{member['member_openid']}]] 来 @ 他。"
+                    )
+                else:
+                    system_prompt += (
+                        f"\n\n用户想让你和「{display}」打招呼，"
+                        "直接称呼名字即可；不要 @ 对方，"
+                        "也不要输出 [[at:...]] 标记。"
+                    )
             elif name and len(members) > 1:
                 same = "、".join(
                     f"{m.get('username') or name}({m['member_openid']})"

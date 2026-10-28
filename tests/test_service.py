@@ -67,7 +67,7 @@ class AgentServiceTest(unittest.TestCase):
         service = AgentService(loop, self.store, persona=persona or StubPersona())
         return service, llm
 
-    def test_name_reference_resolves_group_member(self):
+    def test_name_reference_resolves_group_member_without_mention(self):
         self.store.upsert_group_member("G1", "u2", "奶坤")
         service, llm = self.make_service([answer("收到")])
         asyncio.run(service.handle(
@@ -75,8 +75,20 @@ class AgentServiceTest(unittest.TestCase):
             scope_id="G1", user_id="u1", sender_name="奶鱼",
         ))
         system = llm.messages_seen[0][0]["content"]
-        self.assertIn("[[at:u2]]", system)
         self.assertIn("奶坤", system)
+        self.assertIn("不要 @", system)
+        self.assertNotIn("[[at:u2]]", system)
+
+    def test_name_reference_can_mention_when_enabled(self):
+        self.store.upsert_group_member("G1", "u2", "奶坤")
+        service, llm = self.make_service([answer("收到")])
+        with patch.object(settings, "GROUP_NAME_MENTION", True):
+            asyncio.run(service.handle(
+                "跟奶坤打个招呼", chat_id="group:G1", scope_type="group",
+                scope_id="G1", user_id="u1", sender_name="奶鱼",
+            ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("[[at:u2]]", system)
 
     def test_name_reference_ambiguous_asks(self):
         self.store.upsert_group_member("G1", "u2", "奶坤")

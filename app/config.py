@@ -80,6 +80,8 @@ class Settings:
     QQ_PRIVATE_WHITELIST: list[str] = _env_list("QQ_PRIVATE_WHITELIST")
     # 群里什么时候响应：mention | keyword | mention_or_keyword | all
     GROUP_TRIGGER_MODE: str = os.getenv("GROUP_TRIGGER_MODE", "mention_or_keyword").strip().lower()
+    # 按昵称找到人后，回复里是否真的 @ 对方（默认只称呼名字）
+    GROUP_NAME_MENTION: bool = _env_bool("GROUP_NAME_MENTION", False)
     # 自动旁听接话的群（@ 与关键词仍必定回复）
     QQ_PARTICIPATION_GROUPS: list[str] = _env_list("QQ_PARTICIPATION_GROUPS")
     PARTICIPATION_RATE: float = float(os.getenv("PARTICIPATION_RATE", "0.15") or 0)
