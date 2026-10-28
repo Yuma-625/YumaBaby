@@ -198,6 +198,8 @@ class Settings:
 
     # 人设审核
     PERSONA_FEEDBACK_TTL_MINUTES: int = _env_int("PERSONA_FEEDBACK_TTL_MINUTES", 180)
+    # 20:00 人设推送前，若最近 N 秒有对话则跳过；0 = 不检查，照常推送
+    PERSONA_PUSH_IDLE_SECONDS: int = _env_int("PERSONA_PUSH_IDLE_SECONDS", 600)
     PERSONA_ANALYZE_DAILY_LIMIT: int = _env_int("PERSONA_ANALYZE_DAILY_LIMIT", 20)
     PERSONA_MAX_PENDING: int = _env_int("PERSONA_MAX_PENDING", 20)
 

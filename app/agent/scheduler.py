@@ -64,13 +64,13 @@ class ScheduledTasks:
                 logger.info("今日已推送过人设总结，跳过")
                 return
             last = store.last_activity_at()
-            if last:
+            if last and settings.PERSONA_PUSH_IDLE_SECONDS > 0:
                 try:
                     from datetime import datetime
                     last_dt = datetime.fromisoformat(last)
                     from zoneinfo import ZoneInfo
                     now = datetime.now(ZoneInfo(settings.TIMEZONE))
-                    if (now - last_dt).total_seconds() < 600:
+                    if (now - last_dt).total_seconds() < settings.PERSONA_PUSH_IDLE_SECONDS:
                         logger.info("刚刚还有对话，暂不打扰")
                         return
                 except (TypeError, ValueError):
