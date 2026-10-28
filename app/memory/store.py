@@ -127,6 +127,25 @@ CREATE TABLE IF NOT EXISTS sticker_candidates (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS runtime_groups (
+    group_id TEXT PRIMARY KEY,
+    mode TEXT DEFAULT 'normal',
+    participation INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS unknown_groups (
+    group_id TEXT PRIMARY KEY,
+    user_id TEXT DEFAULT '',
+    sender_name TEXT DEFAULT '',
+    sample TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending',
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    notified INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS group_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id TEXT NOT NULL,
@@ -1214,6 +1233,80 @@ class MemoryStore:
                 (status, path, candidate_id),
             )
         self._conn.commit()
+
+    # ------------------------------------------------------------------ 运行时群配置
+
+    def upsert_runtime_group(self, group_id: str, mode: str = "normal",
+                             participation: bool = False) -> None:
+        self._conn.execute(
+            "INSERT INTO runtime_groups(group_id, mode, participation, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(group_id) DO UPDATE SET "
+            "mode=excluded.mode, participation=excluded.participation, "
+            "updated_at=excluded.updated_at",
+            (group_id, mode, 1 if participation else 0, _now(), _now()),
+        )
+        self._conn.commit()
+
+    def get_runtime_group(self, group_id: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM runtime_groups WHERE group_id=?", (group_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_runtime_groups(self) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM runtime_groups ORDER BY updated_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_runtime_group(self, group_id: str) -> int:
+        cur = self._conn.execute(
+            "DELETE FROM runtime_groups WHERE group_id=?", (group_id,)
+        )
+        self._conn.commit()
+        return cur.rowcount
+
+    def record_unknown_group(self, group_id: str, user_id: str = "",
+                             sender_name: str = "", sample: str = "") -> bool:
+        """首次记录返回 True；已存在只更新最后出现时间，返回 False。"""
+        existing = self._conn.execute(
+            "SELECT group_id FROM unknown_groups WHERE group_id=?", (group_id,)
+        ).fetchone()
+        if existing:
+            self._conn.execute(
+                "UPDATE unknown_groups SET last_seen=?, user_id=?, sender_name=?, sample=? "
+                "WHERE group_id=?",
+                (_now(), user_id, sender_name, sample[:200], group_id),
+            )
+            self._conn.commit()
+            return False
+        self._conn.execute(
+            "INSERT INTO unknown_groups(group_id, user_id, sender_name, sample, status, "
+            "first_seen, last_seen, notified) VALUES (?, ?, ?, ?, 'pending', ?, ?, 0)",
+            (group_id, user_id, sender_name, sample[:200], _now(), _now()),
+        )
+        self._conn.commit()
+        return True
+
+    def get_unknown_group(self, group_id: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM unknown_groups WHERE group_id=?", (group_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def set_unknown_group_status(self, group_id: str, status: str) -> None:
+        self._conn.execute(
+            "UPDATE unknown_groups SET status=?, notified=1 WHERE group_id=?",
+            (status, group_id),
+        )
+        self._conn.commit()
+
+    def list_unknown_groups(self, status: str = "pending") -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM unknown_groups WHERE status=? ORDER BY first_seen DESC",
+            (status,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------ 日报
 

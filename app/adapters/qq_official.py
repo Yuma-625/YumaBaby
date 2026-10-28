@@ -77,10 +77,14 @@ class OfficialQQAdapter(BaseAdapter):
 
     def __init__(self, on_message: Callable | None = None,
                  on_reply_sent: Callable[[str, str], None] | None = None,
-                 on_group_seen: Callable[[str, str, str, str, list], None] | None = None):
+                 on_group_seen: Callable[[str, str, str, str, list], None] | None = None,
+                 group_policy: Callable[[str], dict | None] | None = None,
+                 on_unknown_group: Callable[[str, str, str, str], None] | None = None):
         self.on_message = on_message
         self.on_reply_sent = on_reply_sent
         self.on_group_seen = on_group_seen
+        self.group_policy = group_policy
+        self.on_unknown_group = on_unknown_group
         self._http = httpx.AsyncClient(timeout=20, follow_redirects=True)
         self._token = ""
         self._token_exp = 0.0
@@ -347,17 +351,32 @@ class OfficialQQAdapter(BaseAdapter):
             "message_id": str(data.get("id") or ""),
         }
 
+    def _default_group_policy(self, group_id: str) -> dict | None:
+        if settings.QQ_TARGET_GROUPS and group_id not in settings.QQ_TARGET_GROUPS:
+            return None
+        return {
+            "mode": "readonly" if group_id in settings.QQ_READONLY_GROUPS else "normal",
+            "participation": group_id in settings.QQ_PARTICIPATION_GROUPS,
+        }
+
     async def _handle_group(self, data: dict, *, at_bot: bool):
         group_id = str(data.get("group_openid") or "")
         if not group_id:
             return
-        if settings.QQ_TARGET_GROUPS and group_id not in settings.QQ_TARGET_GROUPS:
-            logger.debug(f"忽略未配置的群 openid: {group_id}")
-            return
-
         parsed = self._parse_event(data)
         text = parsed["text"]
         user_id = parsed["user_id"]
+        policy = (
+            self.group_policy(group_id) if self.group_policy
+            else self._default_group_policy(group_id)
+        )
+        if policy is None:
+            if at_bot and self.on_unknown_group:
+                self.on_unknown_group(
+                    group_id, user_id, text, parsed["name"]
+                )
+            return
+
         if group_id not in self._seen_groups:
             self._seen_groups.add(group_id)
             logger.info(
@@ -372,12 +391,14 @@ class OfficialQQAdapter(BaseAdapter):
             except Exception:
                 logger.exception("记录群聊上下文失败")
 
-        if group_id in settings.QQ_READONLY_GROUPS:
+        if policy.get("mode") == "readonly":
             return
 
         active = self._pending_key(group_id, user_id) in self._pending
         auto = False
         if not active and not self._is_group_triggered(at_bot, text):
+            if not policy.get("participation"):
+                return
             if not self._should_auto_participate(group_id, text):
                 return
             auto = True
@@ -448,8 +469,6 @@ class OfficialQQAdapter(BaseAdapter):
         return mentioned or keyword
 
     def _should_auto_participate(self, group_id: str, text: str) -> bool:
-        if group_id not in settings.QQ_PARTICIPATION_GROUPS:
-            return False
         if settings.PARTICIPATION_RATE <= 0 or len(text) < 4:
             return False
         now = asyncio.get_running_loop().time()

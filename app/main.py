@@ -48,6 +48,12 @@ async def on_qq_message(message: str, context: dict) -> str:
             if handled is not None:
                 return handled
 
+            from app.agent.groups import handle_group_admin
+
+            group_reply = handle_group_admin(message, store, user_id)
+            if group_reply is not None:
+                return group_reply
+
         from app.stickers import handle_sticker_command
 
         sticker_reply = await handle_sticker_command(
@@ -134,6 +140,53 @@ def on_group_seen(group_id: str, user_id: str, text: str,
         task.add_done_callback(_log_task_result)
 
 
+def group_policy(group_id: str) -> dict | None:
+    """数据库运行时配置优先，其次 .env；None 表示未知群。"""
+    store = shared.memory_store
+    if store is not None:
+        runtime = store.get_runtime_group(group_id)
+        if runtime is not None:
+            return {
+                "mode": runtime.get("mode") or "normal",
+                "participation": bool(runtime.get("participation")),
+            }
+    if group_id in settings.QQ_TARGET_GROUPS:
+        return {
+            "mode": "readonly" if group_id in settings.QQ_READONLY_GROUPS else "normal",
+            "participation": group_id in settings.QQ_PARTICIPATION_GROUPS,
+        }
+    return None
+
+
+def on_unknown_group(group_id: str, user_id: str, text: str, sender_name: str) -> None:
+    store = shared.memory_store
+    if store is None:
+        return
+    if not store.record_unknown_group(group_id, user_id, sender_name, text):
+        return
+    task = asyncio.create_task(_notify_unknown_group(group_id, user_id, sender_name, text))
+    task.add_done_callback(_log_task_result)
+
+
+async def _notify_unknown_group(group_id: str, user_id: str,
+                                sender_name: str, text: str) -> None:
+    adapter = shared.qq_adapter
+    admin = settings.QQ_PERSONA_ADMIN
+    if adapter is None or not admin:
+        return
+    reply = (
+        f"发现新群：{group_id}\n"
+        f"首次 @：{sender_name or user_id}：{text[:100]}\n"
+        f"要加入配置吗？回复：\n"
+        f"加群 {group_id} 正常\n"
+        f"加群 {group_id} 只读\n"
+        f"拒绝 {group_id}"
+    )
+    result = await adapter.send_private_msg(admin, reply)
+    if result.get("status") != "ok":
+        logger.error("新群通知发送失败: %s", result)
+
+
 def _log_task_result(task: asyncio.Task):
     if task.cancelled():
         return
@@ -200,6 +253,8 @@ async def lifespan(app: FastAPI):
                 on_message=on_qq_message,
                 on_reply_sent=on_reply_sent,
                 on_group_seen=on_group_seen,
+                group_policy=group_policy,
+                on_unknown_group=on_unknown_group,
             )
             if settings.QQ_PROVIDER == "official"
             else QQAdapter(

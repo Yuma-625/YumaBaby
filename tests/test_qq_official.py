@@ -13,6 +13,67 @@ from app.adapters.qq_official import (
 )
 
 
+class OfficialPolicyTest(unittest.TestCase):
+    def _event(self, group="G12345678"):
+        return {
+            "id": "e1", "content": "在吗", "group_openid": group,
+            "author": {"member_openid": "U1", "username": "奶鱼"},
+            "mentions": [{"id": "BOT", "username": "小弗", "bot": True}],
+        }
+
+    def test_unknown_group_notifies_admin_once(self):
+        seen = []
+        replies = []
+
+        async def on_message(text, context):
+            replies.append(text)
+            return ""
+
+        adapter = OfficialQQAdapter(
+            on_message=on_message,
+            group_policy=lambda gid: None,
+            on_unknown_group=lambda *args: seen.append(args),
+        )
+        adapter._bot_openid = "BOT"
+        asyncio.run(adapter._handle_group(self._event(), at_bot=True))
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0][0], "G12345678")
+        self.assertEqual(replies, [])
+
+    def test_readonly_group_records_but_does_not_reply(self):
+        seen = []
+        replies = []
+
+        async def on_message(text, context):
+            replies.append(text)
+            return ""
+
+        adapter = OfficialQQAdapter(
+            on_message=on_message,
+            on_group_seen=lambda *args: seen.append(args),
+            group_policy=lambda gid: {"mode": "readonly", "participation": False},
+        )
+        asyncio.run(adapter._handle_group(self._event(), at_bot=True))
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(replies, [])
+
+    def test_normal_group_replies_when_at(self):
+        replies = []
+
+        async def on_message(text, context):
+            replies.append(text)
+            return ""
+
+        adapter = OfficialQQAdapter(
+            on_message=on_message,
+            group_policy=lambda gid: {"mode": "normal", "participation": False},
+        )
+        adapter._bot_openid = "BOT"
+        asyncio.run(adapter._handle_group(self._event(), at_bot=True))
+        asyncio.run(adapter._flush_after("group:G12345678:U1", 0))
+        self.assertEqual(replies, ["在吗"])
+
+
 class OfficialParseTest(unittest.TestCase):
     def test_mentions_are_converted(self):
         self.assertEqual(

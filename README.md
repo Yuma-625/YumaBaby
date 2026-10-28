@@ -284,7 +284,27 @@ QQ_OFFICIAL_BOT_OPENID=      # READY 后自动获取，也可手动填
 - `GROUP_MESSAGE_CREATE` 群全量（需在开放平台开启“接收所有消息”）
 - 断线 `Resume` 补发
 
-当前限制：官方适配器**只发文本**；表情/图片仍走 OneBot 的 CQ base64，官方模式会跳过并告警。富媒体上传是下一步。
+当前限制：官方图片直传单张 ≤5MB；超过需要分片上传，暂未实现。
+
+### 新群自动发现（运行时配置）
+
+机器人被拉进新群、首次被 @ 时：
+
+1. 适配器发现未知 `group_openid`
+2. 私聊管理员一条通知：群 openid、首次 @ 的人、消息摘要
+3. 管理员回复其中一种：
+
+```text
+加群 <openid> 正常
+加群 <openid> 只读
+加群 <openid> 正常 旁听
+拒绝 <openid>
+```
+
+4. `加群` 写入 SQLite 的 `runtime_groups`，**下一条消息立即生效，不用改 .env、不用重启**
+5. `群列表` 查看数据库与 `.env` 合并后的配置；`删群 <openid>` 移除运行时配置
+
+优先级：`runtime_groups` 数据库 > `.env` 的 `QQ_TARGET_GROUPS` / `QQ_READONLY_GROUPS` / `QQ_PARTICIPATION_GROUPS`。
 
 ### 图片与表情
 
