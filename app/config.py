@@ -82,6 +82,13 @@ class Settings:
     GROUP_TRIGGER_MODE: str = os.getenv("GROUP_TRIGGER_MODE", "mention_or_keyword").strip().lower()
     # 按昵称找到人后，回复里是否真的 @ 对方（默认只称呼名字）
     GROUP_NAME_MENTION: bool = _env_bool("GROUP_NAME_MENTION", False)
+    # 机器人刚回过某人后，短时间内把同一个人的后续消息当作续聊
+    FOLLOWUP_ENABLED: bool = _env_bool("FOLLOWUP_ENABLED", True)
+    FOLLOWUP_WINDOW_SECONDS: int = _env_int("FOLLOWUP_WINDOW_SECONDS", 120)
+    FOLLOWUP_MAX_TURNS: int = _env_int("FOLLOWUP_MAX_TURNS", 3)
+    FOLLOWUP_GROUP_COOLDOWN_SECONDS: int = _env_int(
+        "FOLLOWUP_GROUP_COOLDOWN_SECONDS", 3
+    )
     # 自动旁听接话的群（@ 与关键词仍必定回复）
     QQ_PARTICIPATION_GROUPS: list[str] = _env_list("QQ_PARTICIPATION_GROUPS")
     PARTICIPATION_RATE: float = float(os.getenv("PARTICIPATION_RATE", "0.15") or 0)

@@ -175,6 +175,24 @@ def group_policy(group_id: str) -> dict | None:
     return None
 
 
+def conversation_state(group_id: str, user_id: str) -> dict | None:
+    if shared.memory_store is None:
+        return None
+    # 按人独立：A、B 可以同时各有自己的续聊窗口
+    return shared.memory_store.get_active_conversation(
+        f"group:{group_id}", user_id
+    )
+
+
+def on_bot_replied(group_id: str, user_id: str, reply: str) -> None:
+    if shared.memory_store is None:
+        return
+    shared.memory_store.mark_conversation_active(
+        f"group:{group_id}", user_id,
+        settings.FOLLOWUP_WINDOW_SECONDS, reply,
+    )
+
+
 def on_unknown_group(group_id: str, user_id: str, text: str, sender_name: str,
                      notify: bool = True) -> None:
     store = shared.memory_store
@@ -297,6 +315,8 @@ async def lifespan(app: FastAPI):
                 on_group_seen=on_group_seen,
                 group_policy=group_policy,
                 on_unknown_group=on_unknown_group,
+                conversation_state=conversation_state,
+                on_bot_replied=on_bot_replied,
             )
             if settings.QQ_PROVIDER == "official"
             else QQAdapter(

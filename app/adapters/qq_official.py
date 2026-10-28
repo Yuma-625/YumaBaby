@@ -19,6 +19,7 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 
 from app.adapters.base import BaseAdapter
+from app.agent.followup import looks_like_followup
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -83,12 +84,16 @@ class OfficialQQAdapter(BaseAdapter):
                  on_reply_sent: Callable[[str, str], None] | None = None,
                  on_group_seen: Callable[[str, str, str, str, list], None] | None = None,
                  group_policy: Callable[[str], dict | None] | None = None,
-                 on_unknown_group: Callable[[str, str, str, str], None] | None = None):
+                 on_unknown_group: Callable[[str, str, str, str], None] | None = None,
+                 conversation_state: Callable[[str, str], dict | None] | None = None,
+                 on_bot_replied: Callable[[str, str, str], None] | None = None):
         self.on_message = on_message
         self.on_reply_sent = on_reply_sent
         self.on_group_seen = on_group_seen
         self.group_policy = group_policy
         self.on_unknown_group = on_unknown_group
+        self.conversation_state = conversation_state
+        self.on_bot_replied = on_bot_replied
         self._http = httpx.AsyncClient(timeout=20, follow_redirects=True)
         self._token = ""
         self._token_exp = 0.0
@@ -102,6 +107,7 @@ class OfficialQQAdapter(BaseAdapter):
         self._pending: dict[str, _PendingChat] = {}
         self._reply_seq: dict[str, int] = {}
         self._last_auto_reply: dict[str, float] = {}
+        self._last_followup_reply: dict[str, float] = {}
         self._seen_groups: set[str] = set()
         self._awaiting_feedback = False
         self._awaiting_since = 0.0
@@ -450,17 +456,37 @@ class OfficialQQAdapter(BaseAdapter):
 
         active = self._pending_key(group_id, user_id) in self._pending
         auto = False
+        followup = False
         if not active and not self._is_group_triggered(at_bot, text):
-            if not policy.get("participation"):
-                return
-            if not self._should_auto_participate(group_id, text):
-                return
-            auto = True
-            self._last_auto_reply[group_id] = asyncio.get_running_loop().time()
+            state = (
+                self.conversation_state(group_id, user_id)
+                if settings.FOLLOWUP_ENABLED and self.conversation_state else None
+            )
+            # 这条消息 @ 了别人，说明是在跟别人说话，不抢话
+            if state and not parsed["at_targets"] and int(state.get("turns") or 0) < settings.FOLLOWUP_MAX_TURNS:
+                followup = looks_like_followup(
+                    text, str(state.get("last_reply") or "")
+                )
+            if followup:
+                now = asyncio.get_running_loop().time()
+                last = self._last_followup_reply.get(group_id, 0.0)
+                if now - last < settings.FOLLOWUP_GROUP_COOLDOWN_SECONDS:
+                    followup = False
+                else:
+                    self._last_followup_reply[group_id] = now
+            if not followup:
+                if not policy.get("participation"):
+                    return
+                if not self._should_auto_participate(group_id, text):
+                    return
+                auto = True
+                self._last_auto_reply[group_id] = asyncio.get_running_loop().time()
         elif not at_bot and any(
             kw and kw in text for kw in settings.QQ_AUTO_REPLY_KEYWORDS
         ):
             logger.info("官方群关键词触发 [%s]: %s", group_id, text[:80])
+        if followup:
+            logger.info("官方群续聊 [%s] user=%s: %s", group_id, user_id, text[:80])
 
         if not text and at_bot:
             text = "（只是 @ 了我一下，没有说别的）"
@@ -659,6 +685,11 @@ class OfficialQQAdapter(BaseAdapter):
         if result:
             response = await self.send_group_msg(group_id, result, msg_id=reply_msg_id)
             self._notify_reply_sent(f"group:{group_id}", response)
+            if response.get("status") == "ok" and self.on_bot_replied:
+                try:
+                    self.on_bot_replied(group_id, user_id, result)
+                except Exception:
+                    logger.exception("记录续聊状态失败")
 
     async def _process_private_reply(self, user_id: str, text: str,
                                      reply_msg_id: str | None = None,

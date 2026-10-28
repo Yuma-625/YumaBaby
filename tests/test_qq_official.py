@@ -21,6 +21,73 @@ class OfficialPolicyTest(unittest.TestCase):
             "mentions": [{"id": "BOT", "username": "小弗", "bot": True}],
         }
 
+    def test_followup_replies_without_at(self):
+        replies = []
+
+        async def on_message(text, context):
+            replies.append(text)
+            return ""
+
+        adapter = OfficialQQAdapter(
+            on_message=on_message,
+            group_policy=lambda gid: {"mode": "normal", "participation": False},
+            conversation_state=lambda gid, uid: {
+                "turns": 0, "last_reply": "你想聊什么？",
+            },
+        )
+        event = {
+            "id": "f1", "content": "随便聊聊", "group_openid": "G12345678",
+            "author": {"member_openid": "U1", "username": "奶鱼"},
+            "mentions": [],
+        }
+        asyncio.run(adapter._handle_group(event, at_bot=False))
+        asyncio.run(adapter._flush_after("group:G12345678:U1", 0))
+        self.assertEqual(replies, ["随便聊聊"])
+
+    def test_no_followup_without_state(self):
+        replies = []
+
+        async def on_message(text, context):
+            replies.append(text)
+            return ""
+
+        adapter = OfficialQQAdapter(
+            on_message=on_message,
+            group_policy=lambda gid: {"mode": "normal", "participation": False},
+            conversation_state=lambda gid, uid: None,
+        )
+        event = {
+            "id": "f2", "content": "随便聊聊", "group_openid": "G12345678",
+            "author": {"member_openid": "U1", "username": "奶鱼"},
+            "mentions": [],
+        }
+        asyncio.run(adapter._handle_group(event, at_bot=False))
+        asyncio.run(adapter._flush_after("group:G12345678:U1", 0))
+        self.assertEqual(replies, [])
+
+    def test_at_other_person_blocks_followup(self):
+        replies = []
+
+        async def on_message(text, context):
+            replies.append(text)
+            return ""
+
+        adapter = OfficialQQAdapter(
+            on_message=on_message,
+            group_policy=lambda gid: {"mode": "normal", "participation": False},
+            conversation_state=lambda gid, uid: {
+                "turns": 0, "last_reply": "你想聊什么？",
+            },
+        )
+        event = {
+            "id": "f3", "content": "<@U2> 随便聊聊", "group_openid": "G12345678",
+            "author": {"member_openid": "U1", "username": "奶鱼"},
+            "mentions": [{"id": "U2", "username": "阿三"}],
+        }
+        asyncio.run(adapter._handle_group(event, at_bot=False))
+        asyncio.run(adapter._flush_after("group:G12345678:U1", 0))
+        self.assertEqual(replies, [])
+
     def test_add_robot_notifies_unknown_group(self):
         seen = []
         adapter = OfficialQQAdapter(

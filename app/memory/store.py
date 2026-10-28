@@ -163,6 +163,16 @@ CREATE TABLE IF NOT EXISTS group_members (
     PRIMARY KEY(group_id, member_openid)
 );
 
+CREATE TABLE IF NOT EXISTS active_conversations (
+    chat_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    active_until TEXT NOT NULL,
+    turns INTEGER DEFAULT 0,
+    last_reply TEXT DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(chat_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS group_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id TEXT NOT NULL,
@@ -1467,6 +1477,50 @@ class MemoryStore:
             (group_id, f"%{query}%", max(1, limit)),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------ 续聊状态
+
+    def mark_conversation_active(self, chat_id: str, user_id: str,
+                                 ttl_seconds: int, last_reply: str = "") -> None:
+        now = datetime.now(ZoneInfo(settings.TIMEZONE))
+        existing = self.get_active_conversation(chat_id, user_id)
+        turns = int(existing["turns"]) + 1 if existing else 1
+        active_until = (now + timedelta(seconds=max(30, ttl_seconds))).isoformat(
+            timespec="seconds"
+        )
+        self._conn.execute(
+            "INSERT INTO active_conversations(chat_id, user_id, active_until, turns, "
+            "last_reply, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(chat_id, user_id) DO UPDATE SET "
+            "active_until=excluded.active_until, turns=excluded.turns, "
+            "last_reply=excluded.last_reply, updated_at=excluded.updated_at",
+            (chat_id, user_id, active_until, turns, last_reply[:500], _now()),
+        )
+        self._conn.commit()
+
+    def get_active_conversation(self, chat_id: str, user_id: str
+                                ) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM active_conversations WHERE chat_id=? AND user_id=?",
+            (chat_id, user_id),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            until = datetime.fromisoformat(row["active_until"])
+            now = datetime.now(ZoneInfo(settings.TIMEZONE))
+            if until < now:
+                return None
+        except ValueError:
+            return None
+        return dict(row)
+
+    def clear_conversation(self, chat_id: str, user_id: str) -> None:
+        self._conn.execute(
+            "DELETE FROM active_conversations WHERE chat_id=? AND user_id=?",
+            (chat_id, user_id),
+        )
+        self._conn.commit()
 
     # ------------------------------------------------------------------ 日报
 
