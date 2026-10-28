@@ -44,7 +44,7 @@ app/
 │  └─ scheduler.py  定时任务（20:00 人设审核；市场简报受开关控制）
 ├─ tools/
 │  ├─ registry.py   工具注册表（JSON Schema + 参数校验 + 超时 + 统一错误包）
-│  └─ builtin.py    时间 / 网页抓取 / Bing 搜索 / 记忆读写
+│  └─ builtin.py    时间 / 网页抓取 / DeepSeek 搜索 / 记忆读写
 ├─ memory/
 │  └─ store.py      SQLite：对话 / 记忆 / 主题 / 向量 / 行为日志 / 打分 / 数据集
 ├─ review/
@@ -192,7 +192,7 @@ python -m app.review.server
 
 网页抓取带 SSRF 防护：只允许 http/https，解析域名后拒绝私网、回环、链路本地和保留地址，重定向逐跳校验，响应体有大小上限。
 
-联网搜索走 Bing 页面解析（`web_search`），结果缓存 5 分钟；Bing 部分结果页会反爬，模型会如实说明抓不到，而不是编造。
+联网搜索优先走 DeepSeek 官方 Search API（`WEB_SEARCH_PROVIDER=deepseek`），失败自动回退 Bing 页面解析；结果缓存 5 分钟。DeepSeek 搜索返回标题、链接、长摘要和发布时间，中文时效性更好。
 
 连发合并（M1.5）：同一会话在 `DEBOUNCE_SECONDS` 窗口内的多条消息合并成一次调用。
 

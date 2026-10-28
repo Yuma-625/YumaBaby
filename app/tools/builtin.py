@@ -252,8 +252,38 @@ def parse_bing_results(html_text: str, limit: int = 5) -> list[dict]:
     return results
 
 
+async def _deepseek_search(query: str, limit: int) -> list[dict]:
+    base = settings.LLM_BASE_URL.rstrip("/")
+    url = f"{base}/tools/search" if base.endswith("/v1") else f"{base}/v1/tools/search"
+    async with httpx.AsyncClient(timeout=settings.WEB_FETCH_TIMEOUT) as client:
+        resp = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {settings.LLM_API_KEY}"},
+            json={"query": query, "count": limit, "need_content": False},
+        )
+        if resp.status_code >= 400:
+            raise ValueError(f"DeepSeek 搜索失败 HTTP {resp.status_code}")
+        payload = resp.json()
+    results = []
+    for item in payload.get("results") or []:
+        summary = str(item.get("summary") or item.get("snippet") or "").strip()
+        title = str(item.get("title") or "").strip()
+        url_value = str(item.get("url") or "").strip()
+        if not title or not url_value.startswith("http"):
+            continue
+        results.append({
+            "title": title,
+            "url": url_value,
+            "snippet": summary,
+            "summary": summary,
+            "date": item.get("date"),
+            "site": item.get("site_name"),
+        })
+    return results[:limit]
+
+
 async def web_search(query: str, limit: int = 5) -> dict:
-    """Bing 网页搜索，返回标题/链接/摘要。"""
+    """优先 DeepSeek Search API，失败时回退 Bing 网页搜索。"""
     query = (query or "").strip()
     if not query:
         raise ValueError("搜索词不能为空")
@@ -265,22 +295,34 @@ async def web_search(query: str, limit: int = 5) -> dict:
     if cached and now - cached[0] < 300:
         return {"query": query, "cached": True, "results": cached[1]}
 
-    url = "https://www.bing.com/search?" + urlencode(
-        {"q": query, "setlang": "zh-CN", "count": limit}
-    )
-    async with httpx.AsyncClient(
-        timeout=settings.WEB_FETCH_TIMEOUT, follow_redirects=True, headers=_SEARCH_UA
-    ) as client:
-        resp = await client.get(url)
-        if resp.status_code >= 400:
-            raise ValueError(f"搜索失败 HTTP {resp.status_code}")
-        results = parse_bing_results(resp.text, limit)
+    results = []
+    provider = "deepseek"
+    if settings.WEB_SEARCH_PROVIDER == "deepseek" and settings.LLM_API_KEY:
+        try:
+            results = await _deepseek_search(query, limit)
+        except Exception as e:
+            logger.warning(f"DeepSeek 搜索失败，回退 Bing: {type(e).__name__}: {e}")
+            provider = "bing"
+    else:
+        provider = "bing"
+
+    if not results and provider == "bing":
+        url = "https://www.bing.com/search?" + urlencode(
+            {"q": query, "setlang": "zh-CN", "count": limit}
+        )
+        async with httpx.AsyncClient(
+            timeout=settings.WEB_FETCH_TIMEOUT, follow_redirects=True, headers=_SEARCH_UA
+        ) as client:
+            resp = await client.get(url)
+            if resp.status_code >= 400:
+                raise ValueError(f"搜索失败 HTTP {resp.status_code}")
+            results = parse_bing_results(resp.text, limit)
 
     if results:
         _search_cache[cache_key] = (now, results)
         if len(_search_cache) > 100:
             _search_cache.clear()
-    return {"query": query, "cached": False, "results": results}
+    return {"query": query, "provider": provider, "cached": False, "results": results}
 
 
 def build_registry(store: MemoryStore) -> ToolRegistry:

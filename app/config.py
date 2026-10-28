@@ -179,6 +179,7 @@ class Settings:
     WEB_FETCH_TIMEOUT: float = float(os.getenv("WEB_FETCH_TIMEOUT", "15"))
     WEB_FETCH_MAX_BYTES: int = _env_int("WEB_FETCH_MAX_BYTES", 2_000_000)
     WEB_FETCH_MAX_CHARS: int = _env_int("WEB_FETCH_MAX_CHARS", 4000)
+    WEB_SEARCH_PROVIDER: str = os.getenv("WEB_SEARCH_PROVIDER", "deepseek").strip().lower()
 
     # 图片理解
     VISION_ENABLED: bool = _env_bool("VISION_ENABLED", True)
