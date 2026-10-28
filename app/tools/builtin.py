@@ -344,6 +344,19 @@ def build_registry(store: MemoryStore) -> ToolRegistry:
         adapter = shared.qq_adapter
         if adapter is None or not getattr(adapter, "is_connected", False):
             raise ValueError("QQ 适配器未连接，暂时发不出去")
+
+        async def _send_record(chat_id: str, body: str, action) -> dict:
+            result = await action
+            if result.get("status") == "ok":
+                data = result.get("data") or {}
+                ref = (data.get("ext_info") or {}).get("ref_idx") or ""
+                store.save_message(
+                    chat_id, "assistant", body,
+                    platform_message_id=str(data.get("id") or ""),
+                    platform_ref_idx=str(ref),
+                )
+            return result
+
         value = (text or "").strip()
         if not value:
             raise ValueError("消息内容不能为空")
@@ -354,9 +367,15 @@ def build_registry(store: MemoryStore) -> ToolRegistry:
 
         if lowered in ("", "current", "当前", "当前会话", "这里"):
             if scope_type == "group":
-                result = await adapter.send_group_msg(scope_id, value)
+                result = await _send_record(
+                    f"group:{scope_id}", value,
+                    adapter.send_group_msg(scope_id, value),
+                )
             elif scope_type == "user":
-                result = await adapter.send_private_msg(scope_id, value)
+                result = await _send_record(
+                    f"user:{scope_id}", value,
+                    adapter.send_private_msg(scope_id, value),
+                )
             else:
                 raise ValueError("当前没有可发送的会话")
             return {"ok": True, "target": f"{scope_type}:{scope_id}", "result": result}
@@ -364,7 +383,10 @@ def build_registry(store: MemoryStore) -> ToolRegistry:
         if lowered in ("admin", "我", "管理员"):
             if not settings.QQ_PERSONA_ADMIN:
                 raise ValueError("未配置管理员 openid")
-            result = await adapter.send_private_msg(settings.QQ_PERSONA_ADMIN, value)
+            result = await _send_record(
+                f"user:{settings.QQ_PERSONA_ADMIN}", value,
+                adapter.send_private_msg(settings.QQ_PERSONA_ADMIN, value),
+            )
             return {
                 "ok": True,
                 "target": f"user:{settings.QQ_PERSONA_ADMIN}",
@@ -374,28 +396,46 @@ def build_registry(store: MemoryStore) -> ToolRegistry:
         if lowered in ("group", "群", "本群", "当前群"):
             if not scope_id or scope_type != "group":
                 raise ValueError("当前不在群里，无法发到本群")
-            result = await adapter.send_group_msg(scope_id, value)
+            result = await _send_record(
+                f"group:{scope_id}", value,
+                adapter.send_group_msg(scope_id, value),
+            )
             return {"ok": True, "target": f"group:{scope_id}", "result": result}
 
         # 显式 group: / user: 前缀，或已配置的群 openid
         if target.startswith("group:"):
             group_id = target.split(":", 1)[1]
-            result = await adapter.send_group_msg(group_id, value)
+            result = await _send_record(
+                f"group:{group_id}", value,
+                adapter.send_group_msg(group_id, value),
+            )
             return {"ok": True, "target": f"group:{group_id}", "result": result}
         if target.startswith("user:"):
             user_openid = target.split(":", 1)[1]
-            result = await adapter.send_private_msg(user_openid, value)
+            result = await _send_record(
+                f"user:{user_openid}", value,
+                adapter.send_private_msg(user_openid, value),
+            )
             return {"ok": True, "target": f"user:{user_openid}", "result": result}
         if target in settings.QQ_TARGET_GROUPS or store.get_runtime_group(target):
-            result = await adapter.send_group_msg(target, value)
+            result = await _send_record(
+                f"group:{target}", value,
+                adapter.send_group_msg(target, value),
+            )
             return {"ok": True, "target": f"group:{target}", "result": result}
 
         # 显式 openid：群里默认按当前场景发；私聊默认发私聊
         if len(target) >= 8 and all(ch.isalnum() or ch in "_-" for ch in target):
             if scope_type == "group":
-                result = await adapter.send_group_msg(target, value)
+                result = await _send_record(
+                    f"group:{target}", value,
+                    adapter.send_group_msg(target, value),
+                )
                 return {"ok": True, "target": f"group:{target}", "result": result}
-            result = await adapter.send_private_msg(target, value)
+            result = await _send_record(
+                f"user:{target}", value,
+                adapter.send_private_msg(target, value),
+            )
             return {"ok": True, "target": f"user:{target}", "result": result}
 
         # 群成员昵称：官方 member_openid 不能直接当私聊 user_openid，
@@ -404,7 +444,11 @@ def build_registry(store: MemoryStore) -> ToolRegistry:
             members = store.search_group_members(scope_id, target)
             if len(members) == 1:
                 name = members[0].get("username") or target
-                result = await adapter.send_group_msg(scope_id, f"{name}，{value}")
+                body = f"{name}，{value}"
+                result = await _send_record(
+                    f"group:{scope_id}", body,
+                    adapter.send_group_msg(scope_id, body),
+                )
                 return {
                     "ok": True,
                     "target": f"group:{scope_id}",

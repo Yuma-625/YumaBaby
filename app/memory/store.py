@@ -232,6 +232,7 @@ _MIGRATIONS = [    ("messages", "platform_message_id", "TEXT"),
     ("stickers", "tags", "TEXT DEFAULT ''"),
     ("stickers", "use_count", "INTEGER DEFAULT 0"),
     ("stickers", "last_used_at", "TEXT"),
+    ("messages", "platform_ref_idx", "TEXT"),
 ]
 
 
@@ -323,12 +324,15 @@ class MemoryStore:
         content: str,
         platform_message_id: str | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        platform_ref_idx: str | None = None,
     ) -> int:
         payload = json.dumps(attachments, ensure_ascii=False) if attachments else ""
         cur = self._conn.execute(
-            "INSERT INTO messages(chat_id, role, content, platform_message_id, attachments, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (chat_id, role, content, platform_message_id, payload, _now()),
+            "INSERT INTO messages(chat_id, role, content, platform_message_id, "
+            "platform_ref_idx, attachments, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (chat_id, role, content, platform_message_id,
+             platform_ref_idx, payload, _now()),
         )
         self._conn.commit()
         return int(cur.lastrowid)
@@ -353,6 +357,17 @@ class MemoryStore:
         row = self._conn.execute(
             "SELECT * FROM messages WHERE platform_message_id=? ORDER BY id DESC LIMIT 1",
             (str(platform_message_id),),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def find_message_by_platform_ref(self, chat_id: str,
+                                     platform_ref_idx: str) -> dict[str, Any] | None:
+        if not platform_ref_idx:
+            return None
+        row = self._conn.execute(
+            "SELECT * FROM messages WHERE chat_id=? AND platform_ref_idx=? "
+            "ORDER BY id DESC LIMIT 1",
+            (chat_id, str(platform_ref_idx)),
         ).fetchone()
         return dict(row) if row else None
 

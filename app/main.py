@@ -47,6 +47,14 @@ async def on_qq_message(message: str, context: dict) -> str:
                     return "QQ 适配器未连接，发不出去。"
                 result = await adapter.send_private_msg(user_id, text)
                 if result.get("status") == "ok":
+                    data = result.get("data") or {}
+                    store.save_message(
+                        f"user:{user_id}", "assistant", text,
+                        platform_message_id=str(data.get("id") or ""),
+                        platform_ref_idx=str(
+                            (data.get("ext_info") or {}).get("ref_idx") or ""
+                        ),
+                    )
                     return f"已主动发给你：{text}"
                 return f"发送失败：{result.get('error') or result.get('data')}"
 
@@ -59,6 +67,7 @@ async def on_qq_message(message: str, context: dict) -> str:
             store=store,
             reviewer=user_id,
             reply_to_id=context.get("reply_to_id"),
+            reply_ref=context.get("reply_ref") or "",
         )
         if handled is not None:
             return handled

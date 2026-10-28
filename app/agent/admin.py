@@ -129,6 +129,7 @@ def handle_admin_message(
     store: MemoryStore,
     reviewer: str = "",
     reply_to_id: str | None = None,
+    reply_ref: str | None = None,
 ) -> str | None:
     """命中管理员命令则返回回复文本，否则返回 None 交给 Agent。"""
     if is_llm_check(text):
@@ -136,7 +137,12 @@ def handle_admin_message(
 
     rating = parse_rating(text)
     if rating is not None:
-        target = store.find_message_by_platform_id(reply_to_id) if reply_to_id else None
+        target = (
+            store.find_message_by_platform_ref(chat_id, reply_ref)
+            if reply_ref else None
+        )
+        if target is None:
+            target = store.find_message_by_platform_id(reply_to_id) if reply_to_id else None
         if target is None:
             target = store.last_assistant_message(chat_id)
         if target is None:

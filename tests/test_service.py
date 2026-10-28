@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.agent.loop import AgentLoop
 from app.agent.service import AgentService, normalize_reply
+from app.agent.admin import handle_admin_message
 from app.config import settings
 from app.memory.store import MemoryStore
 from app.tools.builtin import build_registry
@@ -399,6 +400,26 @@ class AgentServiceTest(unittest.TestCase):
 
         asyncio.run(run())
         self.assertEqual(len(persona.analyzed), 1)
+
+    def test_feedback_uses_quoted_ref(self):
+        first = self.store.save_message(
+            "user:U1", "assistant", "测试消息来啦",
+            platform_message_id="m1", platform_ref_idx="ref-1",
+        )
+        self.store.save_message(
+            "user:U1", "assistant", "后来的回复",
+            platform_message_id="m2", platform_ref_idx="ref-2",
+        )
+        reply = handle_admin_message(
+            "好评", chat_id="user:U1", store=self.store,
+            reviewer="U1", reply_ref="ref-1",
+        )
+        self.assertIn("已记录好评", reply)
+        feedback = self.store._conn.execute(
+            "SELECT * FROM reply_feedback WHERE chat_id='user:U1' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        self.assertEqual(feedback["message_id"], first)
+        self.assertEqual(feedback["rating"], "positive")
 
 
 if __name__ == "__main__":
