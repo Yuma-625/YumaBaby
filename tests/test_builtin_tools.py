@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from unittest.mock import patch
+
 from app.memory.store import MemoryStore
 from app.tools.builtin import (
     build_registry,
@@ -74,6 +76,59 @@ class BingParseTest(unittest.TestCase):
 
     def test_empty_page(self):
         self.assertEqual(parse_bing_results("<html></html>"), [])
+
+
+class SendMessageToolTest(unittest.TestCase):
+    class FakeAdapter:
+        is_connected = True
+
+        def __init__(self):
+            self.calls = []
+
+        async def send_group_msg(self, group_id, text):
+            self.calls.append(("group", group_id, text))
+            return {"status": "ok"}
+
+        async def send_private_msg(self, user_id, text):
+            self.calls.append(("user", user_id, text))
+            return {"status": "ok"}
+
+    def test_send_current_group_and_admin(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = MemoryStore(Path(tmp.name) / "m.db")
+        self.addCleanup(store.close)
+        registry = build_registry(store)
+        fake = self.FakeAdapter()
+        token = set_scope(("group", "G1"))
+        try:
+            with patch("app.shared.qq_adapter", fake):
+                result = asyncio.run(registry.run(
+                    "send_message", {"text": "大家好", "target": "current"},
+                    allowed={"send_message"},
+                ))
+                self.assertTrue(result.ok)
+                result2 = asyncio.run(registry.run(
+                    "send_message", {"text": "给管理员", "target": "admin"},
+                    allowed={"send_message"},
+                ))
+                self.assertTrue(result2.ok)
+        finally:
+            reset_scope(token)
+        self.assertEqual(fake.calls[0], ("group", "G1", "大家好"))
+        self.assertEqual(fake.calls[1][0], "user")
+
+    def test_non_admin_whitelist_blocks(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = MemoryStore(Path(tmp.name) / "m.db")
+        self.addCleanup(store.close)
+        registry = build_registry(store)
+        result = asyncio.run(registry.run(
+            "send_message", {"text": "hi"},
+            allowed={"get_time"},
+        ))
+        self.assertFalse(result.ok)
 
 
 class MemoryToolsTest(unittest.TestCase):

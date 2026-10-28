@@ -32,36 +32,37 @@ async def on_qq_message(message: str, context: dict) -> str:
     group_id = context.get("group_id")
     user_id = str(context.get("user_id") or "unknown")
 
-    # 管理员命令（好评/差评、今日活动、收藏表情），不进 LLM
+    # 管理员命令（好评/差评、今日活动、收藏表情），不进 LLM；
+    # 管理员私聊和群聊都生效
     store = shared.memory_store
     if store is not None and settings.QQ_PERSONA_ADMIN == user_id:
-        if not group_id:
-            from app.agent.admin import handle_admin_message
+        admin_chat_id = f"group:{group_id}" if group_id else f"user:{user_id}"
+        from app.agent.admin import handle_admin_message
 
-            handled = handle_admin_message(
-                message,
-                chat_id=f"user:{user_id}",
-                store=store,
-                reviewer=user_id,
-                reply_to_id=context.get("reply_to_id"),
-            )
-            if handled is not None:
-                return handled
+        handled = handle_admin_message(
+            message,
+            chat_id=admin_chat_id,
+            store=store,
+            reviewer=user_id,
+            reply_to_id=context.get("reply_to_id"),
+        )
+        if handled is not None:
+            return handled
 
-            from app.agent.groups import handle_group_admin, is_scan_group_command
+        from app.agent.groups import handle_group_admin, is_scan_group_command
 
-            if is_scan_group_command(message):
-                return await scan_unknown_groups()
+        if is_scan_group_command(message):
+            return await scan_unknown_groups()
 
-            group_reply = handle_group_admin(message, store, user_id)
-            if group_reply is not None:
-                return group_reply
+        group_reply = handle_group_admin(message, store, user_id)
+        if group_reply is not None:
+            return group_reply
 
-            from app.agent.tones import handle_tone_admin
+        from app.agent.tones import handle_tone_admin
 
-            tone_reply = handle_tone_admin(message, store, user_id)
-            if tone_reply is not None:
-                return tone_reply
+        tone_reply = handle_tone_admin(message, store, user_id)
+        if tone_reply is not None:
+            return tone_reply
 
         from app.stickers import handle_sticker_command
 
@@ -71,7 +72,7 @@ async def on_qq_message(message: str, context: dict) -> str:
             attachments=context.get("attachments") or [],
             group_id=group_id,
             user_id=user_id,
-            chat_id=f"group:{group_id}" if group_id else f"user:{user_id}",
+            chat_id=admin_chat_id,
         )
         if sticker_reply is not None:
             return sticker_reply

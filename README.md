@@ -132,7 +132,7 @@ system + history + user
 | [app/agent/service.py](app/agent/service.py) | 取历史 + 检索记忆 + 跑循环 + 落库 + 记录行为 |
 | [app/agent/context.py](app/agent/context.py) | 人设 + 记忆拼装 system prompt |
 | [app/agent/admin.py](app/agent/admin.py) | 管理员命令：好评/差评、今日活动、LLM 用量 |
-| [app/tools/builtin.py](app/tools/builtin.py) | `get_time`、`web_search`、`web_fetch`、`remember`、`recall`、`forget` |
+| [app/tools/builtin.py](app/tools/builtin.py) | `get_time`、`web_search`、`web_fetch`、`remember`、`recall`、`forget`、管理员 `send_message` |
 
 记忆的 scope 由代码注入，模型看不到也改不了：
 
@@ -153,7 +153,7 @@ system + history + user
 | `events` | 每轮回复（steps/stopped/tools）与每次工具调用（参数、耗时、成败） |
 | `reply_feedback` | 对某条回复的好评/差评 |
 
-管理员私聊命令（不调用 LLM）：
+管理员命令（私聊和群聊都生效，不调用 LLM）：
 
 | 发送 | 效果 |
 |---|---|
@@ -243,9 +243,9 @@ A1（`EMBEDDING_ENABLED`）：
 - 摘要增量更新：新摘要会带上旧摘要，不会从头重压
 - 压缩失败不写入，下一轮重试
 
-### 沙箱文件工具（仅管理员私聊）
+### 沙箱文件工具（仅管理员，私聊/群聊）
 
-`SANDBOX_ENABLED=true` 时，管理员私聊可让模型使用：
+`SANDBOX_ENABLED=true` 时，管理员可在私聊或群里让模型使用：
 
 ```
 fs_list  fs_read  fs_write  fs_edit  fs_glob  fs_grep
@@ -255,9 +255,30 @@ fs_list  fs_read  fs_write  fs_edit  fs_glob  fs_grep
 - 只能读写文本，读上限 `SANDBOX_MAX_READ_BYTES`，写上限 `SANDBOX_MAX_WRITE_BYTES`
 - 默认不覆盖；覆盖要显式 `overwrite=true`
 - 没有删除/移动命令
-- **群里和其他人私聊不会注册这些工具**；写操作记 `events(kind="sandbox")`
+- 非管理员不会注册这些工具；管理员在私聊或目标群里都可以用
+- 写操作记 `events(kind="sandbox")`
 
-⚠️ 这是路径 jail + 权限 + 审计，不是 OS 级安全隔离；机器人仍以你的用户权限运行。
+### 主动发消息（仅管理员）
+
+管理员在私聊或群里说：
+
+```text
+给群里发一句今晚开黑
+给我发一条提醒
+```
+
+模型可调用 `send_message`：
+
+| target | 发到哪 |
+|---|---|
+| `current`（默认） | 当前群/当前私聊 |
+| `admin` | 管理员私聊 |
+| `group` | 当前群 |
+| `group:<openid>` | 指定群 |
+| `user:<openid>` | 指定私聊 |
+| 群成员昵称 | 当前群内称呼对方；官方 member_openid 不能直接私聊 |
+
+只有管理员会话会注册这个工具，普通群友看不到。
 
 ### QQ 接入方式
 
@@ -385,7 +406,7 @@ group_id + member_openid + username + last_seen + message_count
 
 表情表新增 `tags`、`use_count`、`last_used_at`。
 
-管理员私聊：
+管理员（私聊/群聊）：
 
 ```text
 表情列表
@@ -430,7 +451,7 @@ STICKER_TONE_MAP=无语:大狗无语
 
 ### 表情候选与私聊
 
-- 管理员私聊也可以直接「存这个表情包」：会从最近 10 分钟私聊图片里找
+- 管理员在私聊或群里也可以直接「存这个表情包」：会从最近 10 分钟图片里找
 - 图片下载会嗅探文件头，兼容 QQ 官方返回 `application/octet-stream` 的情况
 - 候选池审核：`表情候选`、`收 3 命名xx 标签无语,狗`、`拒 3`
 
@@ -576,7 +597,7 @@ STICKER_TONE_MAP=无语:大狗无语
 | `HISTORY_COMPACT_ENABLED` | false | 是否压缩旧对话 |
 | `HISTORY_COMPACT_AFTER` | 30 | 超过多少条消息触发压缩 |
 | `HISTORY_COMPACT_KEEP` | 12 | 压缩后保留多少条原文 |
-| `SANDBOX_ENABLED` | false | 是否启用沙箱文件工具（仅管理员私聊） |
+| `SANDBOX_ENABLED` | false | 是否启用沙箱文件工具（仅管理员） |
 | `SANDBOX_ROOT` | data/sandbox | 沙箱根目录 |
 | `SANDBOX_MAX_READ_BYTES` | 200000 | 单文件读取上限 |
 | `SANDBOX_MAX_WRITE_BYTES` | 1000000 | 单文件写入上限 |

@@ -337,6 +337,84 @@ def build_registry(store: MemoryStore) -> ToolRegistry:
     async def _forget(keyword: str = "") -> dict:
         return await forget(keyword, store)
 
+    async def _send_message(text: str, target: str = "current") -> dict:
+        """管理员主动发消息；仅由管理员工具白名单开放。"""
+        from app import shared
+
+        adapter = shared.qq_adapter
+        if adapter is None or not getattr(adapter, "is_connected", False):
+            raise ValueError("QQ 适配器未连接，暂时发不出去")
+        value = (text or "").strip()
+        if not value:
+            raise ValueError("消息内容不能为空")
+        target = (target or "current").strip()
+        scope = current_scope()
+        scope_type, scope_id = scope if scope else ("", "")
+        lowered = target.lower()
+
+        if lowered in ("", "current", "当前", "当前会话", "这里"):
+            if scope_type == "group":
+                result = await adapter.send_group_msg(scope_id, value)
+            elif scope_type == "user":
+                result = await adapter.send_private_msg(scope_id, value)
+            else:
+                raise ValueError("当前没有可发送的会话")
+            return {"ok": True, "target": f"{scope_type}:{scope_id}", "result": result}
+
+        if lowered in ("admin", "我", "管理员"):
+            if not settings.QQ_PERSONA_ADMIN:
+                raise ValueError("未配置管理员 openid")
+            result = await adapter.send_private_msg(settings.QQ_PERSONA_ADMIN, value)
+            return {
+                "ok": True,
+                "target": f"user:{settings.QQ_PERSONA_ADMIN}",
+                "result": result,
+            }
+
+        if lowered in ("group", "群", "本群", "当前群"):
+            if not scope_id or scope_type != "group":
+                raise ValueError("当前不在群里，无法发到本群")
+            result = await adapter.send_group_msg(scope_id, value)
+            return {"ok": True, "target": f"group:{scope_id}", "result": result}
+
+        # 显式 group: / user: 前缀，或已配置的群 openid
+        if target.startswith("group:"):
+            group_id = target.split(":", 1)[1]
+            result = await adapter.send_group_msg(group_id, value)
+            return {"ok": True, "target": f"group:{group_id}", "result": result}
+        if target.startswith("user:"):
+            user_openid = target.split(":", 1)[1]
+            result = await adapter.send_private_msg(user_openid, value)
+            return {"ok": True, "target": f"user:{user_openid}", "result": result}
+        if target in settings.QQ_TARGET_GROUPS or store.get_runtime_group(target):
+            result = await adapter.send_group_msg(target, value)
+            return {"ok": True, "target": f"group:{target}", "result": result}
+
+        # 显式 openid：群里默认按当前场景发；私聊默认发私聊
+        if len(target) >= 8 and all(ch.isalnum() or ch in "_-" for ch in target):
+            if scope_type == "group":
+                result = await adapter.send_group_msg(target, value)
+                return {"ok": True, "target": f"group:{target}", "result": result}
+            result = await adapter.send_private_msg(target, value)
+            return {"ok": True, "target": f"user:{target}", "result": result}
+
+        # 群成员昵称：官方 member_openid 不能直接当私聊 user_openid，
+        # 只在当前群发一条带名字的消息，不伪装成私聊。
+        if scope_type == "group":
+            members = store.search_group_members(scope_id, target)
+            if len(members) == 1:
+                name = members[0].get("username") or target
+                result = await adapter.send_group_msg(scope_id, f"{name}，{value}")
+                return {
+                    "ok": True,
+                    "target": f"group:{scope_id}",
+                    "note": f"官方 member_openid 不能直接私聊，已改为群里称呼 {name}",
+                    "result": result,
+                }
+            if len(members) > 1:
+                raise ValueError(f"群里有多个「{target}」，请直接给 openid 或说清楚")
+        raise ValueError("找不到发送目标；可用 current / admin / group 或明确的 openid")
+
     registry = ToolRegistry()
     registry.add(
         "get_time",
@@ -411,6 +489,23 @@ def build_registry(store: MemoryStore) -> ToolRegistry:
             "required": [],
         },
         _forget,
+    )
+    registry.add(
+        "send_message",
+        "主动发一条消息（仅管理员）。target 默认 current：当前群/当前私聊；"
+        "admin=发给管理员私聊；group=当前群；也可给明确 openid。",
+        {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "要发送的内容"},
+                "target": {
+                    "type": "string",
+                    "description": "current / admin / group / openid，默认 current",
+                },
+            },
+            "required": ["text"],
+        },
+        _send_message,
     )
     if settings.SANDBOX_ENABLED:
         from app.tools.sandbox import register_sandbox_tools

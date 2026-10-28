@@ -317,17 +317,23 @@ class AgentService:
                 )
 
         token = set_scope((scope_type, scope_id))
-        allowed_tools = None
+        allowed_tools = set(self.loop.tools.names) - {"send_message"}
         if settings.SANDBOX_ENABLED:
             from app.tools.sandbox import TOOL_NAMES
 
-            base = set(self.loop.tools.names) - TOOL_NAMES
-            is_admin_private = (
-                scope_type == "user"
-                and bool(settings.QQ_PERSONA_ADMIN)
-                and scope_id == settings.QQ_PERSONA_ADMIN
-            )
-            allowed_tools = base | (TOOL_NAMES if is_admin_private else set())
+            allowed_tools -= TOOL_NAMES
+        actor_id = user_id or (scope_id if scope_type == "user" else "")
+        is_admin = (
+            bool(settings.QQ_PERSONA_ADMIN)
+            and bool(actor_id)
+            and actor_id == settings.QQ_PERSONA_ADMIN
+        )
+        if is_admin:
+            allowed_tools.add("send_message")
+            if settings.SANDBOX_ENABLED:
+                from app.tools.sandbox import TOOL_NAMES
+
+                allowed_tools |= TOOL_NAMES
         try:
             result = await self.loop.run(
                 text, system_prompt=system_prompt, history=history,

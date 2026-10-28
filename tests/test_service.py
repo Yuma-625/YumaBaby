@@ -196,8 +196,25 @@ class AgentServiceTest(unittest.TestCase):
             service2.loop.tools = registry
             asyncio.run(service2.handle(
                 "看看沙箱", chat_id="group:1", scope_type="group", scope_id="1",
+                user_id="普通用户",
             ))
             self.assertFalse(any(name.startswith("fs_") for name in llm2.tools_seen[0]))
+            self.assertNotIn("send_message", llm2.tools_seen[0])
+
+    def test_admin_group_can_use_sandbox_and_send_tool(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(settings, "SANDBOX_ENABLED", True), \
+             patch.object(settings, "SANDBOX_ROOT", str(Path(tmp) / "sandbox")), \
+             patch.object(settings, "QQ_PERSONA_ADMIN", "ADMIN"):
+            registry = build_registry(self.store)
+            service, llm = self.make_service([answer("好")])
+            service.loop.tools = registry
+            asyncio.run(service.handle(
+                "看看沙箱", chat_id="group:G1", scope_type="group", scope_id="G1",
+                user_id="ADMIN",
+            ))
+            self.assertIn("fs_read", llm.tools_seen[0])
+            self.assertIn("send_message", llm.tools_seen[0])
 
     def test_group_history_window_is_injected(self):
         now = datetime.now(ZoneInfo("Asia/Shanghai"))
