@@ -200,9 +200,11 @@ class Settings:
     # LLM
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "").strip()
     LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.deepseek.com").rstrip("/")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "deepseek-chat")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "deepseek-flash")
     LLM_TIMEOUT: float = float(os.getenv("LLM_TIMEOUT", "30") or 30)
     LLM_MAX_TOKENS: int = _env_int("LLM_MAX_TOKENS", 800)
+    # V4.1-Flash 默认开思考；聊天机器人默认关，降低延迟并避免工具调用回传 reasoning_content
+    LLM_THINKING: str = os.getenv("LLM_THINKING", "disabled").strip().lower()
 
     # 用量与预算（人民币元；价格按百万 token 计）
     LLM_PRICE_INPUT_PER_M: float = float(os.getenv("LLM_PRICE_INPUT_PER_M", "2"))

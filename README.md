@@ -310,8 +310,8 @@ QQ_OFFICIAL_BOT_OPENID=      # READY 后自动获取，也可手动填
 
 ### 图片与表情
 
-- 图片会下载、转成 base64 后作为 `image_url` 内容段发给模型（`deepseek-chat` 本身支持视觉）
-- 表情包（`mface`/`bface`/`marketface`）若带 PNG/JPEG/WebP 链接，也会一并送进视觉；GIF 暂时跳过，只保留文字占位
+- 图片会下载、转成 base64 后作为 `image_url` 内容段发给模型（`deepseek-flash` 本身支持视觉）
+- 表情包（`mface`/`bface`/`marketface`）若带 PNG/JPEG/WebP 链接，也会一并送进视觉；GIF 也支持
 - 只发送**当前这一条消息**里的图片，历史里的图不重复发送，避免每轮重复计费
 - 每轮最多 `VISION_MAX_IMAGES` 张、单张不超过 `VISION_MAX_BYTES`，超限跳过
 - 图片下载走 SSRF 校验（拒绝私网/回环地址）
@@ -538,9 +538,10 @@ STICKER_TONE_MAP=无语:大狗无语
 | `PERSONA_MAX_PENDING` | 20 | 待审核规则上限 |
 | `LLM_API_KEY` | 空 | 未填或仍是占位符时自动跳过 LLM |
 | `LLM_BASE_URL` | https://api.deepseek.com | 兼容 OpenAI 协议的服务 |
-| `LLM_MODEL` | deepseek-chat | 模型名 |
+| `LLM_MODEL` | deepseek-flash | 模型名 |
 | `LLM_TIMEOUT` | 30 | 单次请求超时（秒） |
 | `LLM_MAX_TOKENS` | 800 | 单次回复上限 |
+| `LLM_THINKING` | disabled | V4.1-Flash 思考模式；聊天默认关闭 |
 | `LLM_PRICE_INPUT_PER_M` | 2 | 输入单价（元/百万 token），仅用于估算 |
 | `LLM_PRICE_OUTPUT_PER_M` | 8 | 输出单价（元/百万 token） |
 | `DAILY_BUDGET_SOFT` | 10 | 日花费软上限：只告警 |
@@ -626,7 +627,7 @@ QQ_BOT_UID=机器人QQ
 QQ_AUTO_REPLY_KEYWORDS=小弗
 QQ_PERSONA_ADMIN=管理员QQ
 LLM_API_KEY=sk-...
-LLM_MODEL=deepseek-chat
+LLM_MODEL=deepseek-flash
 ```
 
 **3. 安装并启动**

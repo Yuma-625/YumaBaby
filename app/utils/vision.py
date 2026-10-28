@@ -17,7 +17,7 @@ from app.utils.media import detect_image_mime
 logger = logging.getLogger(__name__)
 
 _IMAGE_TYPES = {"image", "mface", "bface", "marketface"}
-_ALLOWED_CTYPES = {"image/png", "image/jpeg", "image/webp"}
+_ALLOWED_CTYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 
 
 async def attachment_to_part(attachment: dict) -> dict | None:

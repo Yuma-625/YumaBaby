@@ -67,6 +67,11 @@ async def complete(
         "temperature": temperature,
         "max_tokens": max_tokens or settings.LLM_MAX_TOKENS,
     }
+    if (
+        settings.LLM_THINKING in ("enabled", "disabled")
+        and ("flash" in settings.LLM_MODEL or "v4" in settings.LLM_MODEL)
+    ):
+        kwargs["extra_body"] = {"thinking": {"type": settings.LLM_THINKING}}
     if tools:
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"

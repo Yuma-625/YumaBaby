@@ -30,11 +30,11 @@ class VisionTest(unittest.TestCase):
         }))
         self.assertIsNotNone(part)
 
-    def test_gif_is_skipped(self):
+    def test_gif_is_supported(self):
         part = asyncio.run(attachment_to_part({
             "type": "mface", "url": "data:image/gif;base64,AAAA",
         }))
-        self.assertIsNone(part)
+        self.assertIsNotNone(part)
 
     def test_limit_and_non_image_filtered(self):
         attachments = [
