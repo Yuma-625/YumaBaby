@@ -454,6 +454,11 @@ class OfficialQQAdapter(BaseAdapter):
         if policy.get("mode") == "readonly":
             return
 
+        # 这条消息 @ 了别人、又没 @ 机器人：是在跟别人说话，不抢话
+        if parsed["at_targets"] and not at_bot:
+            logger.debug("跳过 @ 别人的群消息: %s", text[:60])
+            return
+
         active = self._pending_key(group_id, user_id) in self._pending
         auto = False
         followup = False
@@ -685,7 +690,8 @@ class OfficialQQAdapter(BaseAdapter):
         if result:
             response = await self.send_group_msg(group_id, result, msg_id=reply_msg_id)
             self._notify_reply_sent(f"group:{group_id}", response)
-            if response.get("status") == "ok" and self.on_bot_replied:
+            # 只有被叫到/续聊才建立续聊窗口；随机旁听不建立，避免下一句被误接
+            if not auto and response.get("status") == "ok" and self.on_bot_replied:
                 try:
                     self.on_bot_replied(group_id, user_id, result)
                 except Exception:

@@ -288,6 +288,16 @@ class AgentService:
             system_prompt += (
                 "\n\n这是群里别人的聊天，你在旁听。只有确实有想说的、能自然接上话时才开口；"
                 "不想接就只输出 [SKIP]，不要解释。"
+                "如果消息是在问事实、版本更新、活动、攻略、新闻，"
+                "先用 web_search 查；查到再简短回答，查不到或不确定就 [SKIP]，"
+                "不要硬接，也不要用“不是月批”“答不上来”这种没有信息量的回复。"
+            )
+        factual_hints = ("更新", "版本", "活动", "攻略", "新角色", "卡池", "公告", "新闻")
+        if scope_type == "group" and any(hint in text for hint in factual_hints):
+            system_prompt += (
+                "\n\n这条消息涉及更新/活动/攻略/新闻等事实信息。"
+                "回答前先用 web_search 查询；如果没查到可靠结果，"
+                "直接说明不确定或输出 [SKIP]，不要凭印象编。"
             )
         if not image_parts and context_entries and settings.VISION_CONTEXT_IMAGES > 0:
             from app.utils.vision import build_image_parts
@@ -329,6 +339,26 @@ class AgentService:
             logger.exception("记录上下文用量失败")
 
         reply = normalize_reply(result.reply)
+        if auto_participate:
+            used_web = any(
+                str(item.get("tool") or "") in ("web_search", "web_fetch")
+                for item in (result.trace or [])
+            )
+            factual = any(hint in text for hint in factual_hints)
+            low_value = any(
+                phrase in reply
+                for phrase in ("答不上来", "不是月批", "不知道", "不清楚", "等个懂行的")
+            )
+            if not used_web and (factual or low_value):
+                logger.info("群聊旁听：事实问题未联网查询或回复无信息量，跳过 chat=%s", chat_id)
+                try:
+                    self.store.add_event(
+                        "skip", "auto_no_research", chat_id,
+                        {"text": text[:80], "reply": reply[:80]},
+                    )
+                except Exception:
+                    logger.exception("记录 skip 事件失败")
+                return ""
         if auto_participate and reply.upper() in ("[SKIP]", "SKIP", "（跳过）", "跳过"):
             logger.info("群聊旁听：模型选择不接话 chat=%s", chat_id)
             try:
