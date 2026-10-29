@@ -16,6 +16,14 @@ from app.config import settings
 
 
 class OfficialPolicyTest(unittest.TestCase):
+    def test_participation_question_only(self):
+        adapter = OfficialQQAdapter()
+        async def check(text):
+            return adapter._should_auto_participate("G", text)
+        with patch.object(settings, "PARTICIPATION_RATE", 1.0), \
+             patch.object(settings, "PARTICIPATION_QUESTION_ONLY", True):
+            self.assertFalse(asyncio.run(check("过来伺候我")))
+            self.assertTrue(asyncio.run(check("为什么小弗不说话")))
     def _event(self, group="G12345678"):
         return {
             "id": "e1", "content": "在吗", "group_openid": group,

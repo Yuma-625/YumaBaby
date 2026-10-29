@@ -92,6 +92,9 @@ class Settings:
     # 自动旁听接话的群（@ 与关键词仍必定回复）
     QQ_PARTICIPATION_GROUPS: list[str] = _env_list("QQ_PARTICIPATION_GROUPS")
     PARTICIPATION_RATE: float = float(os.getenv("PARTICIPATION_RATE", "0.15") or 0)
+    PARTICIPATION_QUESTION_ONLY: bool = _env_bool(
+        "PARTICIPATION_QUESTION_ONLY", True
+    )
     PARTICIPATION_COOLDOWN_SECONDS: int = _env_int("PARTICIPATION_COOLDOWN_SECONDS", 120)
     # 群聊短期上下文：群里最近消息的滚动缓冲（不进数据集）
     GROUP_CONTEXT_ENABLED: bool = _env_bool("GROUP_CONTEXT_ENABLED", True)

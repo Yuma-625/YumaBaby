@@ -480,6 +480,14 @@ class OfficialQQAdapter(BaseAdapter):
         if parsed["at_targets"] and not at_bot:
             logger.debug("跳过 @ 别人的群消息: %s", text[:60])
             return
+        # mentions 被平台吞掉时，至少看字面量 @
+        if (
+            not at_bot
+            and "@" in text
+            and not any(kw and kw in text for kw in settings.QQ_AUTO_REPLY_KEYWORDS)
+        ):
+            logger.debug("跳过字面量 @ 的群消息: %s", text[:60])
+            return
 
         active = self._pending_key(group_id, user_id) in self._pending
         auto = False
@@ -602,6 +610,14 @@ class OfficialQQAdapter(BaseAdapter):
 
     def _should_auto_participate(self, group_id: str, text: str) -> bool:
         if settings.PARTICIPATION_RATE <= 0 or len(text) < 4:
+            return False
+        if settings.PARTICIPATION_QUESTION_ONLY and not any(
+            hint in text for hint in (
+                "?", "？", "吗", "呢", "什么", "怎么", "为什么",
+                "有没有", "有无", "谁", "哪", "能不能", "可不可以",
+                "求推荐", "如何",
+            )
+        ):
             return False
         now = asyncio.get_running_loop().time()
         if now - self._last_auto_reply.get(group_id, 0.0) < settings.PARTICIPATION_COOLDOWN_SECONDS:
