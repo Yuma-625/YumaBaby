@@ -38,8 +38,15 @@ def infer_addressee(entries: list[dict], current_sender: str, text: str) -> str:
     for entry in reversed(prior[-10:]):
         content = str(entry.get("content") or "")
         for name in _AT_NAME_RE.findall(content):
-            if name not in _bot_names():
-                return name
+            if name in _bot_names():
+                continue
+            if name == current_sender:
+                # 上一条是“某人 @ 当前发言人”，当前这句是在回那个人
+                previous = str(
+                    entry.get("sender_name") or entry.get("user_id") or ""
+                )
+                return previous if previous and previous != current_sender else ""
+            return name
 
     # 没有 @ 时，默认对象是上一句的发言人
     if prior:

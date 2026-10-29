@@ -22,6 +22,16 @@ class SceneInferenceTest(unittest.TestCase):
             infer_addressee(entries, "Heart.", "过来伺候我"), "冯某某"
         )
 
+    def test_reverse_addressee(self):
+        entries = [
+            {"sender_name": "Myth", "content": "@喔鲸鲸 大肥鱼你变了吗"},
+            {"sender_name": "喔鲸鲸", "content": "你要问的是我变了，还是模型把我弄残了"},
+        ]
+        self.assertEqual(
+            infer_addressee(entries, "喔鲸鲸", "你要问的是我变了，还是模型把我弄残了"),
+            "Myth",
+        )
+
     def test_ignores_bot_name(self):
         entries = [
             {"sender_name": "Heart.", "content": "@小弗 你好"},
