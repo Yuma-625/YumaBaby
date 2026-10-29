@@ -173,6 +173,14 @@ CREATE TABLE IF NOT EXISTS active_conversations (
     PRIMARY KEY(chat_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS group_events (
+    group_id TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    event_json TEXT DEFAULT '',
+    up_to_id INTEGER DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS group_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id TEXT NOT NULL,
@@ -1136,7 +1144,7 @@ class MemoryStore:
             tz = ZoneInfo("UTC")
         cutoff = (datetime.now(tz) - timedelta(minutes=max(1, minutes))).isoformat(timespec="seconds")
         rows = self._conn.execute(
-            "SELECT user_id, sender_name, content, attachments, created_at "
+            "SELECT id, user_id, sender_name, content, attachments, created_at "
             "FROM group_context WHERE group_id=? AND created_at>=? "
             "ORDER BY id DESC LIMIT ?",
             (group_id, cutoff, max(1, limit)),
@@ -1536,6 +1544,38 @@ class MemoryStore:
             (chat_id, user_id),
         )
         self._conn.commit()
+
+    # ------------------------------------------------------------------ 群事件摘要
+
+    def get_group_event(self, group_id: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM group_events WHERE group_id=?", (group_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def save_group_event(self, group_id: str, summary: str,
+                         event_json: str = "", up_to_id: int = 0) -> None:
+        self._conn.execute(
+            "INSERT INTO group_events(group_id, summary, event_json, up_to_id, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(group_id) DO UPDATE SET "
+            "summary=excluded.summary, event_json=excluded.event_json, "
+            "up_to_id=excluded.up_to_id, updated_at=excluded.updated_at",
+            (group_id, summary, event_json, up_to_id, _now()),
+        )
+        self._conn.commit()
+
+    def last_group_context_id(self, group_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT MAX(id) AS n FROM group_context WHERE group_id=?", (group_id,)
+        ).fetchone()
+        return int(row["n"] or 0)
+
+    def count_group_context_after(self, group_id: str, after_id: int) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM group_context WHERE group_id=? AND id>?",
+            (group_id, after_id),
+        ).fetchone()
+        return int(row["n"])
 
     # ------------------------------------------------------------------ 日报
 

@@ -355,6 +355,17 @@ class AgentServiceTest(unittest.TestCase):
         self.assertEqual(reply, "")
         self.assertEqual(self.store.recent_messages("group:1"), [])
 
+    def test_auto_participation_uses_cached_event_summary(self):
+        self.store.save_group_event("G1", "大家在聊今晚打本")
+        service, llm = self.make_service([answer("听起来不错")])
+        asyncio.run(service.handle(
+            "今晚打本吗", chat_id="group:G1", scope_type="group",
+            scope_id="G1", auto_participate=True, sender_name="A",
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("最近群聊事件摘要", system)
+        self.assertIn("今晚打本", system)
+
     def test_auto_participation_reply_is_saved(self):
         service, _ = self.make_service([answer("这句我接")])
         reply = asyncio.run(service.handle(

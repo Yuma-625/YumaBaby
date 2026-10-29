@@ -168,6 +168,15 @@ def on_group_seen(group_id: str, user_id: str, text: str,
     shared.memory_store.add_group_context(
         group_id, user_id, text, attachments, sender_name
     )
+    try:
+        from app.agent.event_summary import maybe_refresh_group_event
+
+        task = asyncio.create_task(
+            maybe_refresh_group_event(shared.memory_store, group_id)
+        )
+        task.add_done_callback(_log_task_result)
+    except Exception:
+        logger.exception("调度群事件摘要失败")
     if settings.STICKER_COLLECT_ENABLED and attachments:
         from app.stickers import collect_candidates
 

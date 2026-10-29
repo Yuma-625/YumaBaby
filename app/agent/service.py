@@ -298,6 +298,13 @@ class AgentService:
                     text,
                 )
             scene = ""
+            event = self.store.get_group_event(scope_id)
+            event_hint = ""
+            if event and event.get("summary"):
+                event_hint = (
+                    f"\n最近群聊事件摘要（可能比当前消息略旧，以当前原文为准）："
+                    f"{event['summary']}"
+                )
             if addressee:
                 scene = (
                     f"\n场景判断：当前发言人是 {sender_name or user_id or '群友'}，"
@@ -314,6 +321,7 @@ class AgentService:
             system_prompt += (
                 "\n\n这是群里别人的聊天，你在旁听。只有确实有想说的、能自然接上话时才开口；"
                 "不想接就只输出 [SKIP]，不要解释。"
+                + event_hint
                 + scene
                 + "如果消息是在问事实、版本更新、活动、攻略、新闻，"
                 "先用 web_search 查；查到再简短回答，查不到或不确定就 [SKIP]，"

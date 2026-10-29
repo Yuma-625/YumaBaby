@@ -105,6 +105,9 @@ class Settings:
     GROUP_CONTEXT_MAX: int = _env_int("GROUP_CONTEXT_MAX", 300)
     GROUP_CONTEXT_MINUTES: int = _env_int("GROUP_CONTEXT_MINUTES", 30)
     GROUP_CONTEXT_INJECT: int = _env_int("GROUP_CONTEXT_INJECT", 10)
+    GROUP_EVENT_SUMMARY_ENABLED: bool = _env_bool("GROUP_EVENT_SUMMARY_ENABLED", True)
+    GROUP_EVENT_SUMMARY_WINDOW: int = _env_int("GROUP_EVENT_SUMMARY_WINDOW", 20)
+    GROUP_EVENT_SUMMARY_REFRESH: int = _env_int("GROUP_EVENT_SUMMARY_REFRESH", 10)
     # 只读/分析群按天保留，避免活跃群 300 条几十分钟就被覆盖
     GROUP_CONTEXT_KEEP_DAYS: int = _env_int("GROUP_CONTEXT_KEEP_DAYS", 3)
     # 问“昨晚/昨天”时，按时间回看群聊记录

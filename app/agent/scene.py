@@ -8,7 +8,7 @@ _AT_NAME_RE = re.compile(r"@([^\s@，。！？、]{1,20})")
 
 
 def _bot_names() -> set[str]:
-    names = {"小弗", "小鱼", "小弗 bot"}
+    names = {"小弗", "小弗 bot"}
     names.update(kw for kw in settings.QQ_AUTO_REPLY_KEYWORDS if kw)
     return names
 
