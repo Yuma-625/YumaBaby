@@ -1104,7 +1104,13 @@ class MemoryStore:
                           attachments: list[dict[str, Any]] | None = None,
                           sender_name: str = "",
                           created_at: str | None = None) -> None:
-        payload = json.dumps(attachments, ensure_ascii=False) if attachments else ""
+        tagged = []
+        for item in attachments or []:
+            copy = dict(item)
+            copy.setdefault("sender_name", sender_name)
+            copy.setdefault("user_id", user_id)
+            tagged.append(copy)
+        payload = json.dumps(tagged, ensure_ascii=False) if tagged else ""
         self._conn.execute(
             "INSERT INTO group_context(group_id, user_id, sender_name, content, attachments, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",

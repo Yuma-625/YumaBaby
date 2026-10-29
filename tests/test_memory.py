@@ -96,6 +96,17 @@ class MemoryStoreTest(unittest.TestCase):
         self.assertEqual([i["content"] for i in items], ["先把表情发出来", "[表情:奶龙]"])
         self.assertEqual(items[1]["sender_name"], "奶坤")
         self.assertEqual(items[1]["attachments"][0]["type"], "bface")
+        self.assertEqual(items[1]["attachments"][0]["sender_name"], "奶坤")
+
+    def test_group_context_attachment_has_sender(self):
+        self.store.add_group_context(
+            "100", "u1", "[图片]",
+            [{"type": "image", "url": "http://x/1.jpg"}],
+            "奶鱼",
+        )
+        items = self.store.recent_group_context("100", limit=1)
+        self.assertEqual(items[0]["attachments"][0]["sender_name"], "奶鱼")
+        self.assertEqual(items[0]["attachments"][0]["user_id"], "u1")
 
     def test_group_context_is_capped(self):
         from unittest.mock import patch

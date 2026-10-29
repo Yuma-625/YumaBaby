@@ -231,8 +231,9 @@ class AgentService:
             image_parts = await build_image_parts(attachments)
             if image_parts:
                 system_prompt += (
-                    "\n\n用户发来了图片，请结合图片内容回答。"
-                    "看不清或图里没有相关信息就直说，不要编造。"
+                    f"\n\n当前图片是「{sender_name or user_id or '当前用户'}」发的。"
+                    "请结合图片内容回答；看不清或图里没有相关信息就直说，不要编造。"
+                    "图片里的数据或身份，不要自动归到图片发送者以外的人。"
                 )
 
         at_targets = list(at_targets or [])
@@ -337,16 +338,30 @@ class AgentService:
         if not image_parts and context_entries and settings.VISION_CONTEXT_IMAGES > 0:
             from app.utils.vision import build_image_parts
             recent_media = []
+            recent_sources = []
             for entry in reversed(context_entries[-3:]):
                 for media in entry.get("attachments") or []:
                     if media.get("type") in ("image", "mface", "bface", "marketface") and media.get("url"):
                         recent_media.append(media)
+                        recent_sources.append(
+                            media.get("sender_name")
+                            or entry.get("sender_name")
+                            or entry.get("user_id")
+                            or "未知"
+                        )
                 if recent_media:
                     break
             if recent_media:
                 image_parts = await build_image_parts(
                     recent_media, limit=settings.VISION_CONTEXT_IMAGES
                 )
+                if image_parts:
+                    sources = "、".join(dict.fromkeys(recent_sources))
+                    system_prompt += (
+                        f"\n\n参考图片来自「{sources}」，不是当前发言人的图。"
+                        "图片只作背景，不要因为当前消息提到某个名字，"
+                        "就把图里的数据或身份强行归给那个人；不确定就说不确定。"
+                    )
 
         token = set_scope((scope_type, scope_id))
         allowed_tools = set(self.loop.tools.names) - {"send_message"}

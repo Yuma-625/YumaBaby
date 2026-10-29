@@ -325,6 +325,21 @@ class AgentServiceTest(unittest.TestCase):
         self.assertEqual(user_message["content"][0]["type"], "text")
         self.assertEqual(user_message["content"][1]["type"], "image_url")
 
+    def test_context_image_source_is_labelled(self):
+        self.store.add_group_context(
+            "G1", "u1", "[图片]",
+            [{"type": "image", "url": "data:image/png;base64,AAAA"}],
+            "鳩",
+        )
+        service, llm = self.make_service([answer("这是鳩发的图")])
+        asyncio.run(service.handle(
+            "这是谁的图", chat_id="group:G1", scope_type="group",
+            scope_id="G1", sender_name="Yuma",
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("参考图片来自「鳩」", system)
+        self.assertIn("不是当前发言人的图", system)
+
     def test_attachments_are_saved(self):
         service, _ = self.make_service([answer("看到了")])
         asyncio.run(service.handle(

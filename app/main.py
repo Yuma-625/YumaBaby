@@ -31,6 +31,12 @@ async def on_qq_message(message: str, context: dict) -> str:
 
     group_id = context.get("group_id")
     user_id = str(context.get("user_id") or "unknown")
+    sender_name = str(context.get("sender_name") or "")
+    attachments = context.get("attachments") or []
+    for item in attachments:
+        if isinstance(item, dict):
+            item.setdefault("sender_name", sender_name)
+            item.setdefault("user_id", user_id)
 
     # 管理员命令（好评/差评、今日活动、收藏表情），不进 LLM；
     # 管理员私聊和群聊都生效
