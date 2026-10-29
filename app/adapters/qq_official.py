@@ -623,8 +623,6 @@ class OfficialQQAdapter(BaseAdapter):
         if now - self._last_auto_reply.get(group_id, 0.0) < settings.PARTICIPATION_COOLDOWN_SECONDS:
             return False
         rate = settings.PARTICIPATION_RATE
-        if "?" in text or "？" in text or "吗" in text:
-            rate = min(1.0, rate * 2)
         import random
         return random.random() < rate
 
