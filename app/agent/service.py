@@ -288,10 +288,33 @@ class AgentService:
                     "发送时会转换成真正的 @；不要直接写 QQ 号当称呼。"
                 )
         if auto_participate:
+            addressee = ""
+            if scope_type == "group":
+                from app.agent.scene import infer_addressee
+
+                addressee = infer_addressee(
+                    context_entries,
+                    sender_name or user_id or "群友",
+                    text,
+                )
+            scene = ""
+            if addressee:
+                scene = (
+                    f"\n场景判断：当前发言人是 {sender_name or user_id or '群友'}，"
+                    f"这句话是对「{addressee}」说的，不是对小弗说的。"
+                    "你是旁听者，不要把自己当成被命令、被询问的对象；"
+                    "如果要加入，就作为第三方评论、接梗或提问，不要用“你要小弗干什么”这种回答。"
+                )
+            else:
+                scene = (
+                    "\n场景判断：无法确定这句话在对谁说。按旁听处理，"
+                    "不要假定对方是在命令或询问小弗。"
+                )
             system_prompt += (
                 "\n\n这是群里别人的聊天，你在旁听。只有确实有想说的、能自然接上话时才开口；"
                 "不想接就只输出 [SKIP]，不要解释。"
-                "如果消息是在问事实、版本更新、活动、攻略、新闻，"
+                + scene
+                + "如果消息是在问事实、版本更新、活动、攻略、新闻，"
                 "先用 web_search 查；查到再简短回答，查不到或不确定就 [SKIP]，"
                 "不要硬接，也不要用“不是月批”“答不上来”这种没有信息量的回复。"
             )

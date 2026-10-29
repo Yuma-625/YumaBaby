@@ -364,6 +364,22 @@ class AgentServiceTest(unittest.TestCase):
         self.assertEqual(reply, "这句我接")
         self.assertEqual(len(self.store.recent_messages("group:1")), 2)
 
+    def test_auto_participation_knows_addressee(self):
+        self.store.add_group_context(
+            "G1", "heart", "@喔鲸鲸 继女", [], "Heart.",
+        )
+        self.store.add_group_context(
+            "G1", "heart", "过来伺候我", [], "Heart.",
+        )
+        service, llm = self.make_service([answer("这玩法有点怪")])
+        asyncio.run(service.handle(
+            "过来伺候我", chat_id="group:G1", scope_type="group",
+            scope_id="G1", auto_participate=True, sender_name="Heart.",
+        ))
+        system = llm.messages_seen[0][0]["content"]
+        self.assertIn("对「喔鲸鲸」说的", system)
+        self.assertIn("不要把自己当成被命令", system)
+
     def test_normalize_reply(self):
         self.assertEqual(normalize_reply("第一句。\n\n第二句。"), "第一句。 第二句。")
         self.assertEqual(normalize_reply("  a \n\t b  "), "a b")
