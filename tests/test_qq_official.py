@@ -16,6 +16,15 @@ from app.config import settings
 
 
 class OfficialPolicyTest(unittest.TestCase):
+    def test_bot_address_vs_third_person(self):
+        adapter = OfficialQQAdapter()
+        self.assertTrue(adapter._is_bot_addressed("小弗在吗"))
+        self.assertTrue(adapter._is_bot_addressed("小弗，唱一个"))
+        self.assertTrue(adapter._is_bot_addressed("小弗你觉得呢"))
+        self.assertFalse(adapter._is_bot_addressed("小弗真安静啊"))
+        self.assertFalse(adapter._is_bot_addressed("这歌小弗都躲了"))
+        self.assertFalse(adapter._is_bot_addressed("为什么小弗一直跟着大肥鱼"))
+
     def test_participation_question_only(self):
         adapter = OfficialQQAdapter()
         async def check(text):

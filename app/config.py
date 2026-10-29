@@ -82,6 +82,10 @@ class Settings:
     GROUP_TRIGGER_MODE: str = os.getenv("GROUP_TRIGGER_MODE", "mention_or_keyword").strip().lower()
     # 按昵称找到人后，回复里是否真的 @ 对方（默认只称呼名字）
     GROUP_NAME_MENTION: bool = _env_bool("GROUP_NAME_MENTION", False)
+    # 关键词触发也要判断是不是在称呼机器人（避免“小弗真安静”这种第三人称误触发）
+    GROUP_KEYWORD_ADDRESS_ONLY: bool = _env_bool(
+        "GROUP_KEYWORD_ADDRESS_ONLY", True
+    )
     # 机器人刚回过某人后，短时间内把同一个人的后续消息当作续聊
     FOLLOWUP_ENABLED: bool = _env_bool("FOLLOWUP_ENABLED", True)
     FOLLOWUP_WINDOW_SECONDS: int = _env_int("FOLLOWUP_WINDOW_SECONDS", 120)

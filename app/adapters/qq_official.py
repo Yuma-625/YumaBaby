@@ -597,9 +597,35 @@ class OfficialQQAdapter(BaseAdapter):
             "收藏这个",
         ))
 
+    @staticmethod
+    def _is_bot_addressed(text: str) -> bool:
+        """判断“小弗”是在称呼机器人，还是只是第三人称提到。"""
+        value = (text or "").strip()
+        for name in settings.QQ_AUTO_REPLY_KEYWORDS:
+            name = (name or "").strip()
+            if not name:
+                continue
+            if value.startswith(name):
+                rest = value[len(name):].lstrip()
+                if not rest:
+                    return True
+                if rest[0] in "，,！!？?、":
+                    return True
+                if rest.startswith((
+                    "你", "您", "在", "帮", "来", "给", "跟", "和", "别", "快",
+                    "唱", "讲", "说", "看", "能", "会", "要", "觉得", "知道",
+                    "为什么", "怎么", "呢", "吗",
+                )):
+                    return True
+            if f"叫{name}" in value or f"{name}呢" in value:
+                return True
+        return False
+
     def _is_group_triggered(self, mentioned: bool, text: str) -> bool:
         mode = settings.GROUP_TRIGGER_MODE
         keyword = any(kw and kw in text for kw in settings.QQ_AUTO_REPLY_KEYWORDS)
+        if keyword and settings.GROUP_KEYWORD_ADDRESS_ONLY:
+            keyword = self._is_bot_addressed(text)
         if mode == "all":
             return True
         if mode == "mention":
