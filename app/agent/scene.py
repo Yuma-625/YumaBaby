@@ -35,7 +35,7 @@ def infer_addressee(entries: list[dict], current_sender: str, text: str) -> str:
             return name
 
     # 往前找最近的 @ 对象（例如 A 先 @B，再说“过来伺候我”）
-    for entry in reversed(prior[-6:]):
+    for entry in reversed(prior[-10:]):
         content = str(entry.get("content") or "")
         for name in _AT_NAME_RE.findall(content):
             if name not in _bot_names():
