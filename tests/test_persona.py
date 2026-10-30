@@ -21,6 +21,12 @@ class PersonaManagerTest(unittest.TestCase):
         self.assertEqual(self.pm.base, DEFAULT_BASE)
         self.assertEqual(self.pm.pending, [])
 
+    def test_safety_limits_are_in_default_prompt(self):
+        prompt = self.pm.get_system_prompt()
+        self.assertIn("赌博", prompt)
+        self.assertIn("建政", prompt)
+        self.assertIn("毒品", prompt)
+
     def test_add_pending_persists_and_dedupes(self):
         self.assertTrue(self.pm.add_pending("称呼用户为老板", "叫我老板"))
         self.assertFalse(self.pm.add_pending("称呼用户为老板", "重复"))
