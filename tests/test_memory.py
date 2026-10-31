@@ -45,6 +45,10 @@ class MemoryStoreTest(unittest.TestCase):
         self.assertEqual(self.store.count_memories("user", "1"), 1)
         self.assertEqual(self.store.forget("user", "1"), 1)
         self.assertEqual(self.store.count_memories(), 0)
+        deleted = self.store._conn.execute(
+            "SELECT COUNT(*) AS n FROM memories WHERE scope_id='1' AND status='deleted'"
+        ).fetchone()["n"]
+        self.assertEqual(deleted, 2)
 
     def test_blank_memory_rejected(self):
         with self.assertRaises(ValueError):

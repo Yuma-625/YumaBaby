@@ -1023,16 +1023,19 @@ class MemoryStore:
         return result
 
     def forget(self, scope_type: str, scope_id: str, keyword: str = "") -> int:
+        # 软删除：保留原始记录，便于误删恢复；列表/召回只看 active。
         if keyword:
             pattern = "%" + keyword.replace("%", r"\%").replace("_", r"\_") + "%"
             cur = self._conn.execute(
-                "DELETE FROM memories WHERE scope_type=? AND scope_id=? "
+                "UPDATE memories SET status='deleted' "
+                "WHERE scope_type=? AND scope_id=? AND status='active' "
                 "AND text LIKE ? ESCAPE '\\'",
                 (scope_type, scope_id, pattern),
             )
         else:
             cur = self._conn.execute(
-                "DELETE FROM memories WHERE scope_type=? AND scope_id=?",
+                "UPDATE memories SET status='deleted' "
+                "WHERE scope_type=? AND scope_id=? AND status='active'",
                 (scope_type, scope_id),
             )
         self._conn.commit()
